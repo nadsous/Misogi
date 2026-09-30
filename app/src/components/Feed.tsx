@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, baseName, type MisogiEvent, type OverrideAction, type Verdict } from "../api";
-import { headline, pct, plainText, time, tone, TONE_BG, TONE_TEXT, type Tone } from "../format";
+import { headline, pct, plainText, reviewIssues, time, tone, TONE_BG, TONE_TEXT, type Tone } from "../format";
 import { useT, type Key } from "../i18n";
 import { LOGO_PATH, LOGO_VIEWBOX } from "../logo";
 import { AgentIcon } from "./Brand";
@@ -21,8 +21,15 @@ export function eventKey(e: MisogiEvent): string {
  * Le fil des décisions est un ruisseau : l'eau coule le long de la marge gauche,
  * chaque décision est une halte sur le courant, et la plus récente reçoit une goutte qui tombe.
  */
-export function Feed({ events, onOpen, showProject, arriving }: { events: MisogiEvent[]; onOpen: (e: MisogiEvent) => void; showProject: boolean; arriving: string | null }) {
+/** Une relecture de demande sans rien à signaler n'a pas sa place dans le fil : chaque message en ferait une. */
+function worthShowing(e: MisogiEvent): boolean {
+  if (e.hook !== "prompt") return true;
+  return !!(e.prompt && (e.prompt.missing || e.prompt.skill || e.prompt.section));
+}
+
+export function Feed({ events: all, onOpen, showProject, arriving }: { events: MisogiEvent[]; onOpen: (e: MisogiEvent) => void; showProject: boolean; arriving: string | null }) {
   const t = useT();
+  const events = all.filter(worthShowing);
   const [feedback, setFeedback] = useState<Record<string, Verdict>>({});
   useEffect(() => {
     api.feedback().then(setFeedback).catch(() => {});
@@ -97,10 +104,15 @@ function DecisionCard({ event: e, onOpen, showProject, arriving, verdict, onRate
           <AgentIcon agent={e.agent} size={17} />
           {showProject && <span className="min-w-0 truncate text-muted">{baseName(e.project)}</span>}
           {e.origin && <span className="shrink-0 rounded bg-raised px-1 text-2xs text-muted" title={e.origin}>⇄ {e.origin}</span>}
-          <span className={`ml-auto shrink-0 ${DECISION_STYLE[e.decision]}`}>
-            {t(`decision.${e.decision}`)}
-            {e.mode === "shadow" && e.decision !== "error" && <span className="text-faint"> · shadow</span>}
-          </span>
+          {e.hook === "stop" || e.hook === "pretool" ? (
+            <span className={`ml-auto shrink-0 ${DECISION_STYLE[e.decision]}`}>
+              {t(`decision.${e.decision}`)}
+              {e.mode === "shadow" && e.decision !== "error" && <span className="text-faint"> · shadow</span>}
+            </span>
+          ) : (
+            // Aides (demande, compaction, boucle) : elles ne laissent passer ni ne bloquent rien.
+            <span className={`ml-auto shrink-0 ${e.hook === "loop" ? "text-bad" : "text-muted"}`}>{t(`hook.${e.hook}` as Key)}</span>
+          )}
         </div>
         <p className={`mt-1.5 text-[15px] leading-snug font-medium ${h === "plain.agree" || h === "plain.guardOk" ? "text-fg" : TONE_TEXT[tn]}`}>{title}</p>
         {e.summary?.request && <p className="mt-1 line-clamp-2 text-2xs leading-snug text-muted italic">« {plainText(e.summary.request)} »</p>}
@@ -118,7 +130,8 @@ function DecisionCard({ event: e, onOpen, showProject, arriving, verdict, onRate
             {(e.relaunches ?? 0) > 0 && `${t("relaunches")} : ${e.relaunches}`}
           </p>
         )}
-        {e.decision !== "error" && Object.keys(e.answers).length > 0 && (
+        <AssistLine event={e} />
+        {e.decision !== "error" && (e.hook === "stop" || e.hook === "pretool") && Object.keys(e.answers).length > 0 && (
           <dl className="mt-2.5 space-y-1.5">
             {Object.entries(e.answers).map(([k, a]) => (
               <AnswerRow key={k} name={k} answer={a.answer} confidence={a.confidence} />
@@ -232,3 +245,36 @@ const RISK_QUESTIONS = new Set(["unverified", "destructive", "exfiltration", "se
 const NEUTRAL_QUESTIONS = new Set(["claims_done", "verification_applies"]);
 const OUTCOME_KEYS = { "outcome.complete": 1, "outcome.partial": 1, "outcome.blocked": 1, "outcome.other": 1 };
 const TEST_KEYS = { "tests.passed": 1, "tests.failed": 1, "tests.not_run": 1, "tests.not_needed": 1 };
+
+/** Ce que les aides de Jev ont relevé, en petites étiquettes : relecture du diff, de la demande, compaction, boucle. */
+function AssistLine({ event: e }: { event: MisogiEvent }) {
+  const t = useT();
+  const chips: { text: string; tone: Tone }[] = [];
+  if (e.hook === "stop") {
+    const r = reviewIssues(e);
+    if (r.unsupported) chips.push({ text: `✗ ${r.unsupported} ${t(r.unsupported > 1 ? "chip.claims" : "chip.claim")}`, tone: "bad" });
+    if (r.offTopic) chips.push({ text: `${r.offTopic} ${t("chip.offTopic")}`, tone: "warn" });
+    if (r.sensitive) chips.push({ text: `⚠ ${r.sensitive} ${t(r.sensitive > 1 ? "chip.sensitives" : "chip.sensitive")}`, tone: "warn" });
+    if (e.review?.suggested_check && !e.facts?.verified_after_last_edit) chips.push({ text: `▶ ${e.review.suggested_check.command}`, tone: "muted" });
+  }
+  if (e.hook === "prompt" && e.prompt) {
+    chips.push({ text: `${t("chip.model")} ${e.prompt.model}`, tone: "muted" });
+    if (e.prompt.skill) chips.push({ text: e.prompt.skill.name, tone: "ok" });
+    if (e.prompt.section) chips.push({ text: e.prompt.section.name, tone: "ok" });
+    if (e.prompt.injected) chips.push({ text: t("chip.injected"), tone: "muted" });
+  }
+  if (e.hook === "compact" && e.compact?.kept.length) {
+    return <p className="mt-1 line-clamp-2 text-2xs text-muted">{e.compact.kept.map((k) => `« ${plainText(k)} »`).join(" · ")}</p>;
+  }
+  if (e.hook === "loop" && e.loop) return <p className="mt-1 text-2xs text-muted">{e.loop.signal}</p>;
+  if (!chips.length) return null;
+  return (
+    <span className="mt-1.5 flex flex-wrap gap-1">
+      {chips.map((c) => (
+        <span key={c.text} className={`max-w-full truncate rounded-md border border-line px-1.5 py-0.5 font-mono text-2xs ${c.tone === "muted" ? "text-muted" : TONE_TEXT[c.tone]}`}>
+          {c.text}
+        </span>
+      ))}
+    </span>
+  );
+}

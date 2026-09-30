@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { AGENT_LABEL, AGENTS, api, type Agent, type GlobalSettings, type Integrations, type Project, type ProjectConfig, type Reliability, type Replay } from "../api";
-import { useT, type Lang } from "../i18n";
+import { AGENT_LABEL, AGENTS, api, type Agent, type GlobalSettings, type Integrations, type Project, type ProjectConfig, type Reliability, type Replay, type ThresholdSuggestion } from "../api";
+import { useT, type Key, type Lang } from "../i18n";
 import { inTauri } from "../platform";
 import { savePref } from "../prefs";
 import { playChime } from "../sound";
@@ -72,13 +72,16 @@ function ReplayPreview({ path, current, draft, onApply }: { path: string; curren
 }
 
 /** Fiabilité de Jev sur ce projet, d'après tes avis Oui / Non. */
-function ReliabilityPanel({ path }: { path: string }) {
+function ReliabilityPanel({ path, current, onApply }: { path: string; current: number; onApply: (threshold: number) => void }) {
   const t = useT();
   const [r, setR] = useState<Reliability | null>(null);
+  const [s, setS] = useState<ThresholdSuggestion | null>(null);
   useEffect(() => {
     api.reliability(path).then(setR).catch(() => {});
-  }, [path]);
+    api.thresholdSuggestion(path).then(setS).catch(() => {});
+  }, [path, current]);
   if (!r) return null;
+  const hooks = Object.entries(r.byHook ?? {}).filter(([, h]) => h.rated > 0);
   return (
     <div className="space-y-1">
       <p className="text-xs text-muted">{t("reliability")}</p>
@@ -95,7 +98,28 @@ function ReliabilityPanel({ path }: { path: string }) {
           <div className="h-1.5 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={Math.round(r.accuracy * 100)} aria-valuemin={0} aria-valuemax={100} aria-label={t("reliability")}>
             <div className="h-full rounded-full bg-accent" style={{ width: `${r.accuracy * 100}%` }} />
           </div>
+          {hooks.length > 1 && (
+            <p className="text-2xs text-faint">
+              {hooks.map(([k, h]) => `${t(`hookName.${k}` as Key) ?? k} ${h.accuracy === null ? "—" : `${Math.round(h.accuracy * 100)} %`} (${h.rated})`).join(" · ")}
+            </p>
+          )}
         </>
+      )}
+      {s && (
+        <p className="text-2xs leading-relaxed text-faint">
+          {s.threshold !== null ? (
+            <>
+              {t("suggest.better")} <strong className="text-fg">{s.threshold.toFixed(2)}</strong> ({s.gain} {t(s.gain > 1 ? "suggest.errors" : "suggest.error")}){" "}
+              <button onClick={() => onApply(s.threshold!)} className="text-accent hover:underline">
+                {t("suggest.apply")}
+              </button>
+            </>
+          ) : s.rated < s.needed ? (
+            `${t("suggest.need")} ${s.rated}/${s.needed}`
+          ) : (
+            t("suggest.keep")
+          )}
+        </p>
       )}
     </div>
   );
@@ -349,7 +373,7 @@ function ProjectSettings({ project, agentsFound, seenModel, onChanged }: { proje
         />
       </Row>
       <ReplayPreview path={project.path} current={config.threshold} draft={draftThreshold} onApply={() => save({ threshold: draftThreshold })} />
-      <ReliabilityPanel path={project.path} />
+      <ReliabilityPanel path={project.path} current={config.threshold} onApply={(threshold) => (setDraftThreshold(threshold), save({ threshold }))} />
 
       <Row label={t("stateLevel")} tip={t("level.help")}>
         <Segmented
@@ -394,6 +418,23 @@ function ProjectSettings({ project, agentsFound, seenModel, onChanged }: { proje
           {config.model !== "jev-latest" && <Button onClick={() => save({ model: "jev-latest" })}>{t("jevVersion.latest")}</Button>}
         </span>
       </Row>
+
+      <div className="space-y-1.5 rounded-md border border-line p-2">
+        <p className="text-xs font-medium">{t("assist.title")}</p>
+        <p className="text-2xs leading-relaxed text-faint">{t(config.profile === "client" || config.state_level === "minimal" ? "assist.private" : "assist.lead")}</p>
+        {(["prompt", "review", "loops", "compact"] as const).map((k) => (
+          <Row key={k} label={t(`assist.${k}` as Key)} tip={t(`assist.${k}.help` as Key)}>
+            <input
+              type="checkbox"
+              aria-label={t(`assist.${k}` as Key)}
+              checked={config.assist[k]}
+              disabled={k !== "loops" && (config.profile === "client" || config.state_level === "minimal")}
+              onChange={(e) => save({ assist: { ...config.assist, [k]: e.target.checked } })}
+              className="size-4 accent-(--accent) disabled:opacity-40"
+            />
+          </Row>
+        ))}
+      </div>
 
       <Row label={t("tickets")} tip={t("tickets.help")}>
         <input type="checkbox" aria-label={t("tickets")} checked={config.tickets} onChange={(e) => save({ tickets: e.target.checked })} className="size-4 accent-(--accent)" />

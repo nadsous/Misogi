@@ -47,9 +47,24 @@ export interface Reliability {
   accuracy: number | null;
   falseAlarms: number;
   missed: number;
+  /** Même mesure par aide (fin de tour, garde-fou, relecture de la demande, boucle…). */
+  byHook?: Record<string, { rated: number; right: number; accuracy: number | null }>;
 }
 
 export function reliability(events: MisogiEvent[], feedback: Record<string, Verdict>): Reliability {
+  const byHook: NonNullable<Reliability["byHook"]> = {};
+  for (const e of events) {
+    const v = feedback[eventKey(e)];
+    if (!v) continue;
+    const h = (byHook[e.hook] ??= { rated: 0, right: 0, accuracy: null });
+    h.rated++;
+    if (v === "right") h.right++;
+    h.accuracy = h.right / h.rated;
+  }
+  return { ...reliabilityTotals(events, feedback), byHook };
+}
+
+function reliabilityTotals(events: MisogiEvent[], feedback: Record<string, Verdict>): Reliability {
   let right = 0;
   let falseAlarms = 0;
   let missed = 0;
@@ -107,4 +122,39 @@ export function replay(events: MisogiEvent[], threshold: number, feedback: Recor
     changes.push({ ts: e.ts, session: e.session, before, after, ...(fb ? { feedback: fb } : {}) });
   }
   return { threshold, total: stops.length, flaggedBefore, flaggedAfter, changes, fixed, broken };
+}
+
+/** Avis nécessaires avant de conseiller un seuil : en dessous, le conseil serait du bruit. */
+export const MIN_RATED_FOR_SUGGESTION = 8;
+
+export interface ThresholdSuggestion {
+  /** Nombre d'arrêts rejouables sur lesquels tu as donné ton avis. */
+  rated: number;
+  needed: number;
+  /** Seuil conseillé, ou null s'il n'y a pas assez d'avis ou si l'actuel est déjà le meilleur. */
+  threshold: number | null;
+  /** Erreurs corrigées moins bonnes décisions cassées, par rapport au seuil actuel. */
+  gain: number;
+}
+
+/**
+ * Cherche le seuil qui aurait fait le moins d'erreurs sur tes avis, en rejouant l'historique (sans rappeler Jev).
+ * À gain égal, le seuil le plus proche de l'actuel l'emporte : on ne change pas pour rien.
+ */
+export function suggestThreshold(events: MisogiEvent[], feedback: Record<string, Verdict>, current: number): ThresholdSuggestion {
+  const stops = events.filter((e) => e.hook === "stop" && !e.skipped && !e.resolved_by && Object.keys(e.answers ?? {}).length > 0);
+  // Ton avis porte sur la décision prise à l'époque : « tort » veut dire qu'il fallait faire l'inverse.
+  const labeled = stops.filter((e) => feedback[eventKey(e)]).map((e) => ({ e, shouldFlag: flagged(e) !== (feedback[eventKey(e)] === "wrong") }));
+  const rated = labeled.length;
+  if (rated < MIN_RATED_FOR_SUGGESTION) return { rated, needed: MIN_RATED_FOR_SUGGESTION, threshold: null, gain: 0 };
+  const errors = (t: number) => labeled.filter(({ e, shouldFlag }) => judge(e.answers, t, e.facts).wouldBlock !== shouldFlag).length;
+  const now = errors(current);
+  let best = { threshold: current, errors: now };
+  for (let i = 10; i <= 19; i++) {
+    const t = i / 20; // 0,50 → 0,95
+    const n = errors(t);
+    if (n < best.errors || (n === best.errors && Math.abs(t - current) < Math.abs(best.threshold - current))) best = { threshold: t, errors: n };
+  }
+  const gain = now - best.errors;
+  return { rated, needed: MIN_RATED_FOR_SUGGESTION, threshold: gain > 0 ? best.threshold : null, gain };
 }

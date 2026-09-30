@@ -25,6 +25,9 @@ export function plainText(md: string): string {
 export function tone(e: MisogiEvent): Tone {
   if (e.decision === "block" || e.decision === "would_block") return "bad";
   if (e.decision === "error") return "muted";
+  if (e.hook === "prompt") return e.prompt?.missing ? "warn" : "muted";
+  if (e.hook === "compact") return "ok";
+  if (e.hook === "stop" && headline(e) === "plain.reviewIssues") return "warn";
   if (e.limit_reached) return "warn";
   if (e.hook === "pretool") return "ok";
   if (e.skipped) return e.skipped === "verified" ? "ok" : "muted";
@@ -39,6 +42,25 @@ export function tone(e: MisogiEvent): Tone {
 /** La phrase principale d'une décision, du plus grave au plus rassurant. */
 export function headline(e: MisogiEvent): Key | null {
   if (e.decision === "error") return null;
+  if (e.hook === "loop") return "plain.loop";
+  if (e.hook === "prompt") return e.prompt?.missing ? "plain.promptUnclear" : "plain.promptOk";
+  if (e.hook === "compact") return e.compact?.kept.length ? "plain.compactKept" : "plain.compactNone";
+  const h = stopHeadline(e);
+  // Rien d'anormal côté « fini ? », mais la relecture du diff a trouvé quelque chose.
+  if ((h === "plain.fine" || h === "plain.verified") && reviewIssues(e).total > 0) return "plain.reviewIssues";
+  return h;
+}
+
+/** Ce que la relecture du diff a relevé : affirmations absentes du diff, fichiers hors sujet, zones sensibles. */
+export function reviewIssues(e: MisogiEvent): { unsupported: number; offTopic: number; sensitive: number; total: number } {
+  const r = e.review;
+  const unsupported = r?.claims.filter((c) => (c.verdict === "not_in_diff" || c.verdict === "contradicted") && c.p >= 0.6).length ?? 0;
+  const offTopic = r?.files.filter((f) => f.related < 0.3).length ?? 0;
+  const sensitive = r?.files.filter((f) => f.sensitive >= 0.7).length ?? 0;
+  return { unsupported, offTopic, sensitive, total: unsupported + offTopic + sensitive };
+}
+
+function stopHeadline(e: MisogiEvent): Key | null {
   if (e.hook === "pretool") return e.decision === "block" ? "plain.guardBlock" : e.decision === "would_block" ? "plain.guardWould" : "plain.guardOk";
   if (e.limit_reached) return "plain.limit";
   if (e.resolved_by === "override" && !Object.keys(e.answers).length) return null;
@@ -46,7 +68,8 @@ export function headline(e: MisogiEvent): Key | null {
   if (e.skipped === "verified") return "plain.verified";
   // Questions actuelles : la raison du verdict dit déjà quel fait pose problème.
   if (e.answers.claims_done || e.answers.outcome) {
-    const r = e.reason ?? "";
+    // Sans les citations (« … ») : une affirmation de l'agent citée ne doit pas fausser le résumé.
+    const r = (e.reason ?? "").replace(/«[^»]*»/g, "");
     if (r.includes("échoue")) return "plain.failedCheck";
     if (r.includes("rien ne l'a vérifié")) return "plain.unproven";
     if (r.includes("aucune vérification n'a tourné")) return "plain.claimsNoCheck";

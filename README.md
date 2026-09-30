@@ -77,12 +77,16 @@ Start in **Observe** mode: Misogi only logs what Jev *would* have done. When you
 | **What guides your agent** | The often invisible files that steer it: `CLAUDE.md`, `AGENTS.md`, skills, subagents, commands, hooks, MCP servers, per project and global. |
 | **Your projects, your keys** | Each project shows its icon (favicon, logo or app icon, found automatically), the agents plugged in, and whether its Jev key is ready. Paste a key once, test it, or reuse it for every project. |
 | **Readable decisions** | "Jev thinks the tests were not run", not raw JSON. The exact state sent and the probabilities are one click away. |
+| **Request check** | Before the agent starts, Jev reads your request: is it clear enough (or does it miss the expected result, the place to change, how far to go)? Which model is enough (Haiku for a rename, Opus for a billing refactor)? Which skill, subagent or `CLAUDE.md` section applies? In Protect mode, the useful hints are given to the agent. |
+| **Diff review** | At the end of the turn, every claim of the agent ("I added the tests") is checked against the diff, files that have nothing to do with the request are flagged, sensitive ones (auth, billing, migrations, secrets) come first in the review list, and Misogi suggests the project's check command to run (`cd apps/backend && npm run test`). |
+| **Stuck-agent alert** | The same check failing again and again? Jev tells apart an agent going in circles from one that fails differently each time and is making progress; only the first gets a sound and a notification. No hook, no delay for the agent. |
+| **Compaction memory** | When Claude Code compacts the conversation, Jev picks your lasting instructions ("never touch migrations/", "use pnpm") and they are given back word for word right after the summary. |
 | **Shell guard** | Before a risky command runs (`rm -rf`, `git push --force`, reading `.env`, uploading data…), Jev judges if it is destructive or leaks secrets, and Misogi refuses it in Protect mode. Ordinary commands run with no delay. Works in Claude Code's auto and bypass modes. |
 | **You stay in charge** | When Jev wants to send the agent back, the window gives you a few seconds: **Let it through** or **Relaunch now**. Red cards offer the same for the next stop. |
 | **No infinite loop** | At most 2 relaunches in a row (configurable); then Misogi lets it through and notifies you. |
 | **Headless & remote** | `claude -p` and CI never wait for a click. SSH sessions and dev containers send their decisions to your window with a token (`misogi remote`). |
 | **Ticket-aware** | The branch (`feat/123-contact`, `ENG-42-login`) or the request (`#123`) links the session to its GitHub, GitLab or Linear ticket; Jev checks the **acceptance criteria**, not just "done?". |
-| **Tune it on your data** | Mark each decision "Jev was right / wrong" to measure its reliability on your project, and replay past decisions with another threshold before applying it. |
+| **Tune it on your data** | Mark each decision "Jev was right / wrong" to measure its reliability on your project (per helper), replay past decisions with another threshold, and after a few ratings Misogi suggests the threshold that would have made the fewest mistakes. |
 | **Stable results** | Pin a Jev version per project so results do not change overnight. The state sent is capped at ~30k tokens and trimmed cleanly. |
 | **Safe by default** | Fail-open (if anything breaks, the agent carries on), shadow mode first, secrets masked before anything leaves your machine, keys in the OS keychain, logs purged after 30 days (configurable). |
 | **Accessible** | Keyboard navigation (arrows between decisions, ⌘K palette), screen-reader announcements, every theme checked for WCAG AA contrast in CI. |
@@ -249,6 +253,7 @@ Adding an agent is one adapter in `hooks/src/adapters/` (hook input → `StopCon
 - [x] Ticket acceptance criteria (GitHub, GitLab, Linear) judged by Jev
 - [x] `npx misogi`, signed auto-updates
 - [x] Claude Code subagents: their edits and checks count in the turn
+- [x] Request check, diff review, stuck-agent alert, compaction memory, suggested threshold
 - [ ] Signed macOS / Windows builds (see [docs/signing.md](docs/signing.md))
 - [ ] Optional Supabase sync across machines
 

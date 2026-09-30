@@ -18,6 +18,7 @@ export const DEFAULT_CONFIG: ProjectConfig = {
   max_state_tokens: 30_000,
   guard: { enabled: false, mode: "shadow", threshold: 0.7 },
   tickets: true,
+  assist: { prompt: true, review: true, compact: true, loops: true },
 };
 
 export const DEFAULT_SETTINGS: GlobalSettings = { retention_days: 30 };
@@ -61,6 +62,9 @@ const num = (v: unknown, min: number, max: number, fallback: number): number => 
 function sanitize(c: ProjectConfig): ProjectConfig {
   const profile = c.profile === "client" ? "client" : "default";
   const g = (c.guard ?? {}) as Partial<ProjectConfig["guard"]>;
+  const a = (c.assist ?? {}) as Partial<ProjectConfig["assist"]>;
+  // Profil « code client » : rien du code ni de la conversation ne part, donc pas de relecture du diff ni de la demande.
+  const shares = profile !== "client" && c.state_level !== "minimal";
   return {
     max_relaunches: Math.round(num(c.max_relaunches, 0, 10, DEFAULT_CONFIG.max_relaunches)),
     ask_before_relaunch: c.ask_before_relaunch !== false,
@@ -71,6 +75,12 @@ function sanitize(c: ProjectConfig): ProjectConfig {
       enabled: g.enabled === true,
       mode: g.mode === "active" ? "active" : "shadow",
       threshold: num(g.threshold, 0.1, 0.99, DEFAULT_CONFIG.guard.threshold),
+    },
+    assist: {
+      prompt: shares && a.prompt !== false,
+      review: shares && a.review !== false,
+      compact: shares && a.compact !== false,
+      loops: a.loops !== false,
     },
     mode: c.mode === "active" ? "active" : "shadow",
     profile,

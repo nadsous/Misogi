@@ -77,6 +77,17 @@ Active **Garde-fou shell** dans les réglages du projet. Avant chaque commande *
 
 Commence en **Observer**, puis passe en **Protéger** : la commande dangereuse est refusée et l'agent cherche une autre solution. Ça marche aussi en mode auto et en bypass de Claude Code, où c'est justement le plus utile.
 
+## 7 bis. Les aides autour du tour
+
+Dans **Réglages du projet → Aides de Jev**, quatre aides sont actives par défaut (coût : environ 0,0001 à 0,0005 $ chacune) :
+
+- **Relire ma demande** (Claude Code) : avant que l'agent parte, Jev dit si ta demande est claire, ce qui manque sinon, quel modèle suffit et quel skill ou quelle section de `CLAUDE.md` s'applique. En mode Protéger, ces pistes sont données à l'agent. Les relectures sans rien à signaler ne s'affichent pas dans le fil.
+- **Relire le diff** : à la fin du tour, chaque affirmation de l'agent est confrontée au diff, les fichiers hors sujet et sensibles sont signalés, et la commande de vérification du projet est proposée. En mode Protéger, c'est cette commande qui est donnée à l'agent quand il doit continuer. Ces constats ne bloquent jamais à eux seuls.
+- **Repérer l'agent qui tourne en rond** : la fenêtre surveille les sessions en cours ; quand la même vérification échoue encore et encore, Jev juge si l'agent tourne en rond ou avance. S'il tourne en rond : son et notification.
+- **Garder mes consignes à la compaction** (Claude Code) : tes consignes durables sont choisies avant la compaction et redonnées mot pour mot juste après.
+
+Avec le profil *code client* ou le niveau *minimal*, rien de ton code ni de tes messages ne part : seule la détection de boucle reste possible.
+
 ## 8. Sans interface (CI, `claude -p`)
 
 Personne ne peut cliquer : Misogi applique la règle tout de suite, sans attendre, et écrit sa raison sur la sortie d'erreur. Le mode est détecté avec les variables `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`… ou `MISOGI_HEADLESS=1`.

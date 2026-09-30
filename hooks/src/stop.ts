@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { fitState } from "./fit.js";
 import { redactDeep } from "./redact.js";
 import { askJev, questionTypes, type JevResult, type Question } from "./jev.js";
+import { prepareReview, reviewNotes, runReview } from "./review.js";
 import type { Ticket } from "./tickets.js";
 import type { Answer, Decision, MisogiEvent, ProjectConfig, StateLevel, StopContext } from "./types.js";
 
@@ -186,6 +187,8 @@ export interface StopDeps {
   ticket?: Ticket | null;
   /** Consigne donnée depuis la fenêtre pour cet arrêt. */
   override?: "allow" | "relaunch" | null;
+  /** Relecture du diff (review.ts) ; désactivable pour les tests. */
+  review?: boolean;
 }
 
 export interface StopOutcome {
@@ -231,6 +234,12 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
     return { block: null, event: { ...base, answers: {}, decision: "allow", latency_ms: 0, input_tokens: 0, resolved_by: "override", reason: "Laissé passer depuis Misogi." } };
   }
 
+  // Relecture du diff, en parallèle du contrôle « fini ? » : affirmations, hors-sujet, zones sensibles, test conseillé.
+  const reviewInput = deps.review !== false && config.assist?.review && facts.file_changes > 0 ? prepareReview(ctx, facts.verified_after_last_edit) : null;
+  const reviewing = reviewInput
+    ? runReview(ctx, reviewInput, { apiKey: deps.apiKey, mock: deps.mock, model: config.model, timeoutMs: Math.max(config.timeout_ms * 2, 3000), ask: deps.ask })
+    : Promise.resolve(null);
+
   // Les faits décident seuls quand ils suffisent : pas d'appel, pas de coût, pas de faux positif.
   if (deps.override !== "relaunch") {
     if (facts.file_changes === 0) {
@@ -238,7 +247,21 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
     }
     if (facts.verified_after_last_edit && !ticket) {
       const proof = (ctx.checks ?? []).filter((c) => c.afterLastEdit).at(-1)?.command ?? "";
-      return { block: null, event: { ...base, answers: {}, decision: "allow", latency_ms: 0, input_tokens: 0, skipped: "verified", reason: `Vérifié : « ${clip(proof, 80)} » passe après la dernière modification.` } };
+      const reviewed = await reviewing;
+      const notes = reviewed ? reviewNotes(reviewed.review) : [];
+      return {
+        block: null,
+        event: {
+          ...base,
+          answers: {},
+          decision: "allow",
+          latency_ms: Date.now() - started,
+          input_tokens: reviewed?.inputTokens ?? 0,
+          skipped: "verified",
+          reason: `Vérifié : « ${clip(proof, 80)} » passe après la dernière modification.${notes.length ? ` À savoir : ${notes.join(" ; ")}.` : ""}`,
+          ...(reviewed ? { review: reviewed.review } : {}),
+        },
+      };
     }
   }
 
@@ -248,6 +271,7 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
     else if (!deps.apiKey) throw new Error("TYPESAFE_API_KEY absente : lance avec MISOGI_MOCK=1 ou ajoute ta clé");
     else result = await (deps.ask ?? askJev)({ state, model: config.model, questions }, { apiKey: deps.apiKey, timeoutMs: config.timeout_ms });
   } catch (err) {
+    void reviewing.catch(() => {});
     return {
       block: null,
       event: { ...base, questions: questionTypes(questions), answers: {}, decision: "error", latency_ms: Date.now() - started, input_tokens: 0, reason: (err as Error).message },
@@ -255,8 +279,11 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
   }
 
   const verdict = judge(result.answers, config.threshold, facts);
+  const reviewed = await reviewing;
+  const notes = reviewed ? reviewNotes(reviewed.review) : [];
+  const suggested = reviewed?.review.suggested_check?.command;
   let decision: Decision = "allow";
-  let reason = verdict.reason + (trimmed ? " (state raccourci pour tenir dans la limite de Jev)" : "");
+  let reason = verdict.reason + (notes.length ? ` À savoir : ${notes.join(" ; ")}.` : "") + (verdict.wouldBlock && suggested ? ` Vérification conseillée : \`${suggested}\`.` : "") + (trimmed ? " (state raccourci pour tenir dans la limite de Jev)" : "");
   let limitReached = false;
   let resolvedBy: MisogiEvent["resolved_by"];
   if (deps.override === "relaunch") {
@@ -272,7 +299,7 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
     } else decision = "block";
   }
   return {
-    block: decision === "block" ? `Misogi : ${reason} Lance les tests (ou le build) du projet, corrige ce qui échoue, puis termine.` : null,
+    block: decision === "block" ? `Misogi : ${reason} ${suggested ? `Lance \`${suggested}\`` : "Lance les tests (ou le build) du projet"}, corrige ce qui échoue, puis termine.` : null,
     event: {
       ...base,
       questions: questionTypes(questions),
@@ -280,8 +307,9 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
       answers: result.answers,
       decision,
       latency_ms: Date.now() - started,
-      input_tokens: result.inputTokens,
+      input_tokens: result.inputTokens + (reviewed?.inputTokens ?? 0),
       reason,
+      ...(reviewed ? { review: reviewed.review } : {}),
       ...(limitReached ? { limit_reached: true } : {}),
       ...(resolvedBy ? { resolved_by: resolvedBy } : {}),
     },

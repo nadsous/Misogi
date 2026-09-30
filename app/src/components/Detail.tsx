@@ -74,8 +74,28 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
           </Section>
         )}
 
+        {e.review && <ReviewBlock review={e.review} verified={!!e.facts?.verified_after_last_edit} />}
+        {e.prompt && <PromptBlock p={e.prompt} />}
+        {e.compact && (
+          <Section title={t("compact.title")}>
+            {e.compact.kept.length ? (
+              <ol className="list-decimal space-y-1 pl-4 text-xs">
+                {e.compact.kept.map((k) => (
+                  <li key={k}>« {k} »</li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-xs text-muted">{t("compact.none")}</p>
+            )}
+            <p className="mt-1.5 text-2xs text-faint">
+              {e.compact.candidates} {t("compact.read")}
+            </p>
+          </Section>
+        )}
+
         {/* 3. Ce que Jev a lu dans la réponse */}
-        <Section title={e.hook === "pretool" ? t("jev.titleGuard") : t("jev.title")}>
+        {e.hook !== "prompt" && e.hook !== "compact" && (
+        <Section title={e.hook === "pretool" ? t("jev.titleGuard") : e.hook === "loop" ? t("jev.titleLoop") : t("jev.title")}>
           {questions.length ? (
             <ul className="space-y-2.5">
               {questions.map(([k, a]) => (
@@ -86,6 +106,7 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
             <p className="text-xs text-muted">{t("jev.skipped")}</p>
           )}
         </Section>
+        )}
 
         {facts && (
           <Section title={t("summary.title")}>
@@ -142,17 +163,24 @@ const TEXT: Record<Tone, string> = { ok: "text-ok", warn: "text-warn", bad: "tex
 
 /** Ce que Misogi a fait de l'avis de Jev, en une phrase. */
 function didKey(e: MisogiEvent): Key {
+  if (e.hook === "prompt") return e.prompt?.injected ? "did.promptInjected" : "did.promptShown";
+  if (e.hook === "compact") return e.compact?.kept.length ? "did.compact" : "did.compactNone";
+  if (e.hook === "loop") return "did.loop";
   if (e.hook === "pretool") return e.decision === "block" ? "did.guardBlock" : e.decision === "would_block" ? "did.guardWould" : "did.guardOk";
   if (e.limit_reached) return "did.limit";
   if (e.decision === "error") return "did.error";
   if (e.decision === "block") return "did.block";
   if (e.decision === "would_block") return "did.wouldBlock";
-  return e.skipped ? "did.skipped" : "did.allow";
+  if (e.skipped) return e.review ? "did.skippedReviewed" : "did.skipped";
+  return "did.allow";
 }
 
 /** Une piste concrète, selon ce que Jev a relevé. */
 function todoKey(e: MisogiEvent, h: Key | null): Key {
   if (e.decision === "error") return "todo.error";
+  if (e.hook === "prompt") return e.prompt?.missing ? "todo.promptUnclear" : e.prompt?.model === "Haiku" ? "todo.promptSmall" : "todo.none";
+  if (e.hook === "loop") return "todo.loop";
+  if (h === "plain.reviewIssues") return "todo.review";
   const map: Partial<Record<string, Key>> = {
     "plain.unproven": "todo.unproven",
     "plain.claimsNoCheck": "todo.claimsNoCheck",
@@ -241,5 +269,81 @@ function LongText({ text, className = "" }: { text: string; className?: string }
         </button>
       )}
     </dd>
+  );
+}
+
+/** Relecture du diff : chaque affirmation de l'agent face au diff, les fichiers à relire d'abord, le test conseillé. */
+function ReviewBlock({ review: r, verified }: { review: NonNullable<MisogiEvent["review"]>; verified: boolean }) {
+  const t = useT();
+  const icon = { supported: ["✓", "text-ok"], contradicted: ["✗", "text-bad"], not_in_diff: ["✗", "text-bad"], not_a_change: ["·", "text-faint"] } as const;
+  return (
+    <>
+      {!!r.claims.length && (
+        <Section title={t("review.claims")}>
+          <ul className="space-y-1.5 text-xs">
+            {r.claims.map((c) => (
+              <li key={c.text} className="flex gap-1.5">
+                <span className={icon[c.verdict][1]}>{icon[c.verdict][0]}</span>
+                <span className="min-w-0">
+                  {c.text}
+                  <span className="block text-2xs text-faint">
+                    {t(`review.${c.verdict}` as Key)} · {t("ans.sure")} {pct(c.p)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {!!r.files.length && (
+        <Section title={t("review.files")}>
+          <ul className="space-y-1 text-xs">
+            {r.files.map((f) => (
+              <li key={f.path} className="flex items-center gap-1.5">
+                <code className="min-w-0 flex-1 truncate font-mono text-2xs" title={f.path}>
+                  {f.path}
+                </code>
+                {f.sensitive >= 0.7 && <span className="shrink-0 rounded bg-warn/15 px-1 text-2xs text-warn">⚠ {t("review.sensitive")}</span>}
+                {f.related < 0.3 && <span className="shrink-0 rounded bg-bad/10 px-1 text-2xs text-bad">{t("review.offTopic")}</span>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {r.suggested_check && !verified && (
+        <Section title={t("review.check")}>
+          <code className="block truncate rounded bg-raised px-2 py-1 font-mono text-2xs" title={r.suggested_check.command}>
+            {r.suggested_check.command}
+          </code>
+        </Section>
+      )}
+    </>
+  );
+}
+
+/** Relecture de la demande : clarté, modèle conseillé, skill et section qui s'appliquent. */
+function PromptBlock({ p }: { p: NonNullable<MisogiEvent["prompt"]> }) {
+  const t = useT();
+  return (
+    <Section title={t("prompt.title")}>
+      <ul className="space-y-1.5 text-xs">
+        <li>
+          <span className="text-muted">{t("prompt.clear")}</span> <strong>{p.missing ? `${t("ans.no")} : ${t(`missing.${p.missing}` as Key)}` : t("ans.yes")}</strong>
+        </li>
+        <li>
+          <span className="text-muted">{t("prompt.model")}</span> <strong>{p.model}</strong> <span className="text-faint">({t(`size.${p.size}` as Key) ?? p.size})</span>
+        </li>
+        {p.skill && (
+          <li>
+            <span className="text-muted">{t("prompt.skill")}</span> <strong>{p.skill.name}</strong> <span className="text-faint">· {pct(p.skill.p)}</span>
+          </li>
+        )}
+        {p.section && (
+          <li>
+            <span className="text-muted">{t("prompt.section")}</span> <strong>{p.section.name}</strong> <span className="text-faint">· {pct(p.section.p)}</span>
+          </li>
+        )}
+      </ul>
+    </Section>
   );
 }

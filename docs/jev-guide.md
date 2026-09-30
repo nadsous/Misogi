@@ -79,6 +79,17 @@ Turn on **Shell guard** in the project settings. Before each *risky* command (`r
 
 Start in **Observe**, then **Protect**: the dangerous command is refused and the agent looks for another way. It also works in Claude Code's auto and bypass modes, which is exactly where it matters most.
 
+## 7b. Helpers around the turn
+
+In **Project settings → Jev helpers**, four helpers are on by default (cost: about $0.0001 to $0.0005 each):
+
+- **Read my request** (Claude Code): before the agent starts, Jev says whether your request is clear, what is missing otherwise, which model is enough and which skill or `CLAUDE.md` section applies. In Protect mode, these hints are given to the agent. Checks with nothing to report don't show in the feed.
+- **Review the diff**: at the end of the turn, each claim of the agent is checked against the diff, off-topic and sensitive files are flagged, and the project's check command is suggested. In Protect mode, that command is what the agent is told to run when it must keep going. These findings never block on their own.
+- **Spot an agent going in circles**: the window watches running sessions; when the same check fails again and again, Jev judges whether the agent is going in circles or making progress. If it is stuck: sound and notification.
+- **Keep my instructions through compaction** (Claude Code): your lasting instructions are picked before compaction and given back word for word right after.
+
+With the *client code* profile or the *minimal* level, none of your code or messages leave: only loop detection remains possible.
+
 ## 8. Headless (CI, `claude -p`)
 
 Nobody can click: Misogi applies the rule immediately, never waits, and prints its reason on stderr. Detected through `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`… or `MISOGI_HEADLESS=1`.

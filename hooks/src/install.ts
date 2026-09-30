@@ -53,7 +53,10 @@ export function refreshHooks(): number {
     if (!existsSync(path) || hidden.some((h) => samePath(h, path))) continue;
     for (const agent of agents) {
       try {
-        if (!isInstalled(agent, path) || readFileSync(configFile(agent, path), "utf8").includes(script)) continue;
+        if (!isInstalled(agent, path)) continue;
+        const text = readFileSync(configFile(agent, path), "utf8");
+        // À jour : bon chemin, et pour Claude les hooks ajoutés depuis (demande, compaction).
+        if (text.includes(script) && (agent !== "claude" || text.includes("claude precompact"))) continue;
         install(agent, path);
         n++;
       } catch {
@@ -75,7 +78,7 @@ export function refreshHooks(): number {
   return n;
 }
 // Le guillemet est échappé (\") quand on teste le texte brut d'un fichier JSON.
-const OURS = /hook\.js\\?"? (claude|codex|kimi) (stop|pretool)/;
+const OURS = /hook\.js\\?"? (claude|codex|kimi) (stop|pretool|prompt|precompact|session)/;
 /** Stop : assez long pour te laisser trancher depuis la fenêtre (attente réglable, 60 s au plus). */
 const STOP_TIMEOUT_S = 75;
 /** Avant outil : le garde-fou ne consulte Jev que pour les commandes risquées, 1,5 s au plus. */
@@ -83,7 +86,11 @@ const PRETOOL_TIMEOUT_S = 10;
 /** Nom de l'outil shell pour le matcher du hook avant outil. */
 const SHELL_MATCHER: Record<Agent, string> = { claude: "Bash", codex: "Bash", kimi: "Shell" };
 
-export function hookCommand(agent: Agent, script = stableHookScript(), hook: "stop" | "pretool" = "stop"): string {
+/** Relire la demande, garder les consignes à la compaction : hooks propres à Claude Code (format vérifié). */
+const PROMPT_TIMEOUT_S = 10;
+const COMPACT_TIMEOUT_S = 20;
+
+export function hookCommand(agent: Agent, script = stableHookScript(), hook: "stop" | "pretool" | "prompt" | "precompact" | "session" = "stop"): string {
   return `node "${script}" ${agent} ${hook}${agent === "kimi" ? " --tracked-only" : ""}`;
 }
 
@@ -116,7 +123,7 @@ export function install(agent: Agent, project: string): InstallResult {
   const pretool = hookCommand(agent, script, "pretool");
   if (agent === "claude") removeFromJsonFile(legacyClaudeFile(project));
   if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool), "utf8");
-  else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent]));
+  else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent], agent === "claude" ? claudeExtras(script) : undefined));
   if (!isTracked(project)) saveProjectConfig(project, {});
   updateProject(project, (a) => [...new Set([...a, agent])]);
   unhideProject(project);
@@ -229,9 +236,23 @@ export function uninstallStatusline(): { file: string; changed: boolean } {
 type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 type HooksJson = { hooks?: Record<string, HookGroup[]> } & Record<string, unknown>;
 
-export function addJsonHook(json: HooksJson, command: string, pretool?: string, matcher = "Bash"): HooksJson {
+/** Hooks en plus pour Claude Code : événement → groupe (matcher éventuel, commande, délai). */
+type Extras = Record<string, { matcher?: string; command: string; timeout: number }>;
+
+function claudeExtras(script: string): Extras {
+  return {
+    UserPromptSubmit: { command: hookCommand("claude", script, "prompt"), timeout: PROMPT_TIMEOUT_S },
+    PreCompact: { command: hookCommand("claude", script, "precompact"), timeout: COMPACT_TIMEOUT_S },
+    SessionStart: { matcher: "compact", command: hookCommand("claude", script, "session"), timeout: 5 },
+  };
+}
+
+export function addJsonHook(json: HooksJson, command: string, pretool?: string, matcher = "Bash", extras?: Extras): HooksJson {
   const clean = removeJsonHook(json);
   const hooks = { ...(clean.hooks ?? {}) };
+  for (const [event, h] of Object.entries(extras ?? {})) {
+    hooks[event] = [...(hooks[event] ?? []), { ...(h.matcher ? { matcher: h.matcher } : {}), hooks: [{ type: "command", command: h.command, timeout: h.timeout }] }];
+  }
   hooks.Stop = [...(hooks.Stop ?? []), { hooks: [{ type: "command", command, timeout: STOP_TIMEOUT_S }] }];
   if (pretool) hooks.PreToolUse = [...(hooks.PreToolUse ?? []), { matcher, hooks: [{ type: "command", command: pretool, timeout: PRETOOL_TIMEOUT_S }] }];
   return { ...clean, hooks };

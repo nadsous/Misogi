@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Point d'entrée commun : `node hook.js <agent> <hook> [--tracked-only]`.
-//   <hook> = stop (travail vraiment fini ?), pretool (garde-fou shell), statusline (quotas Claude).
+//   <hook> = stop (travail vraiment fini ?), pretool (garde-fou shell), statusline (quotas Claude),
+//            prompt (relire la demande), precompact + session (garder tes consignes à la compaction).
 // --tracked-only : pour les hooks déclarés en global (Kimi), n'agir que dans les projets suivis.
 // Fail-open : quoi qu'il arrive, on sort en 0 sans rien bloquer, sauf verdict « block » en mode actif.
 
@@ -19,6 +20,9 @@ import { getApiKey } from "./keys.js";
 import { appendEvent } from "./log.js";
 import { addPending, clearBusy, isHeadless, markBusy, recordRelaunch, relaunchCount, someoneCanClick, takeOverride, waitForAnswer } from "./runtime.js";
 import { runStop } from "./stop.js";
+import { contextAfterCompact, runCompact } from "./compact.js";
+import { previousAgentMessage, runPrompt } from "./prompt.js";
+import { projectRoot } from "./platform.js";
 import { ticketFor } from "./tickets.js";
 import type { MisogiEvent } from "./types.js";
 
@@ -150,14 +154,66 @@ async function pretool(adapter: StopAdapter, input: Record<string, unknown>, tra
   if (deny) reply(adapter.deny(deny));
 }
 
+/** Contexte ajouté à la conversation de l'agent (UserPromptSubmit, SessionStart). */
+function addContext(event: string, text: string): void {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } }));
+}
+
+function common(input: Record<string, unknown>): { project: string; session: string; transcript: string } {
+  return { project: projectRoot(String(input.cwd ?? process.cwd())), session: String(input.session_id ?? ""), transcript: String(input.transcript_path ?? "") };
+}
+
+/** Relire la demande avant que l'agent parte (prompt.ts). Ne bloque jamais la demande. */
+async function prompt(agent: "claude" | "codex", input: Record<string, unknown>): Promise<void> {
+  const { project, session, transcript } = common(input);
+  if (!isTracked(project)) return;
+  const config = loadProjectConfig(project);
+  const text = String(input.prompt ?? "").trim();
+  // Commandes (/clear, /model…) : rien à relire.
+  if (!config.assist.prompt || !text || text.startsWith("/")) return;
+  const { key } = await getApiKey(project);
+  const busy = markBusy({ agent, project, hook: "prompt" }, `${agent}-${session}-prompt`);
+  try {
+    const { event, context } = await runPrompt({ agent, project, session, prompt: text, previous: previousAgentMessage(transcript) }, config, { apiKey: key, mock: mockEnabled() });
+    await record(event);
+    if (context) addContext("UserPromptSubmit", context);
+  } finally {
+    clearBusy(busy);
+  }
+}
+
+/** Avant la compaction : choisir tes consignes à garder (compact.ts). */
+async function precompact(input: Record<string, unknown>): Promise<void> {
+  const { project, session, transcript } = common(input);
+  if (!isTracked(project) || !transcript) return;
+  const config = loadProjectConfig(project);
+  if (!config.assist.compact) return;
+  extendDeadline(Math.max(config.timeout_ms * 3, 5000) + 2000);
+  const { key } = await getApiKey(project);
+  const event = await runCompact({ agent: "claude", project, session, transcript }, config, { apiKey: key, mock: mockEnabled() });
+  if (event) await record(event);
+}
+
+/** Après la compaction (SessionStart, source « compact ») : redonner ces consignes à l'agent. */
+function session(input: Record<string, unknown>): void {
+  if (input.source !== "compact") return;
+  const { project, session: id } = common(input);
+  if (!isTracked(project) || !loadProjectConfig(project).assist.compact) return;
+  const context = contextAfterCompact("claude", id);
+  if (context) addContext("SessionStart", context);
+}
+
 async function main(): Promise<void> {
   const [agent, hook, ...flags] = process.argv.slice(2);
   if (agent === "claude" && hook === "statusline") return statusline(await readStdin());
+  const input = JSON.parse((await readStdin()) || "{}") as Record<string, unknown>;
+  if ((agent === "claude" || agent === "codex") && hook === "prompt") return prompt(agent, input);
+  if (agent === "claude" && hook === "precompact") return precompact(input);
+  if (agent === "claude" && hook === "session") return session(input);
   if (!isAgent(agent) || (hook !== "stop" && hook !== "pretool")) {
-    process.stderr.write(`misogi: combinaison non prise en charge « ${agent} ${hook} » (disponible : claude|codex|kimi stop|pretool)\n`);
+    process.stderr.write(`misogi: combinaison non prise en charge « ${agent} ${hook} » (disponible : claude|codex|kimi stop|pretool, claude|codex prompt, claude precompact|session)\n`);
     return;
   }
-  const input = JSON.parse((await readStdin()) || "{}") as Record<string, unknown>;
   const trackedOnly = flags.includes("--tracked-only");
   if (hook === "stop") await stop(STOP_ADAPTERS[agent], input, trackedOnly);
   else await pretool(STOP_ADAPTERS[agent], input, trackedOnly);

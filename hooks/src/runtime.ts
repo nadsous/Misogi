@@ -116,7 +116,7 @@ export async function waitForAnswer(id: string, deadline: number, pollMs = 200):
 export interface Busy {
   agent: Agent;
   project: string;
-  hook: "stop" | "pretool";
+  hook: "stop" | "pretool" | "prompt";
   since: number;
 }
 

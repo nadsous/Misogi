@@ -13,13 +13,14 @@ import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJsonl } from "./adapters/common.js";
 import { STOP_ADAPTERS } from "./adapters/index.js";
-import { forgetProject, hiddenProjects, hideProject, unhideProject, listProjects, loadProjectConfig, loadSettings, misogiHome, samePath, saveProjectConfig, saveSettings } from "./config.js";
+import { forgetProject, hiddenProjects, hideProject, isTracked, mockEnabled, unhideProject, listProjects, loadProjectConfig, loadSettings, misogiHome, samePath, saveProjectConfig, saveSettings } from "./config.js";
 import { listGuides } from "./guides.js";
+import { checkLoop } from "./loops.js";
 import { findProjectIcon } from "./icons.js";
 import { getUsage } from "./usage.js";
 import { askJev } from "./jev.js";
 import { deleteApiKey, getApiKey, getSecret, setApiKey, setSecret, type SecretName } from "./keys.js";
-import { loadFeedback, reliability, replay, setFeedback, type Verdict } from "./feedback.js";
+import { loadFeedback, reliability, replay, setFeedback, suggestThreshold, type Verdict } from "./feedback.js";
 import { install, installStatusline, isInstalled, isStatuslineInstalled, preview, stableHookScript, uninstall, uninstallStatusline } from "./install.js";
 import { appendEvent, logPath, purgeOlderThan } from "./log.js";
 import { answerPending, heartbeat, listBusy, listPending, remoteToken, setOverride, type OverrideAction } from "./runtime.js";
@@ -201,7 +202,32 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       sessions = next;
       broadcast("sessions", sessions);
     }
+    void watchLoops(sessions);
   }, SESSIONS_EVERY_MS);
+
+  // Agent qui tourne en rond (loops.ts) : sessions actives des projets suivis, au plus toutes les 15 s chacune.
+  const loopChecked = new Map<string, number>();
+  let loopBusy = false;
+  async function watchLoops(list: SessionStatus[]): Promise<void> {
+    if (loopBusy) return;
+    loopBusy = true;
+    try {
+      for (const s of list) {
+        if (s.status === "done" || !s.project || !isTracked(s.project)) continue;
+        const k = `${s.agent}:${s.session}`;
+        if (Date.now() - (loopChecked.get(k) ?? 0) < 15_000) continue;
+        loopChecked.set(k, Date.now());
+        const config = loadProjectConfig(s.project);
+        if (!config.assist.loops) continue;
+        const event = await checkLoop(s, config, { apiKey: (await getApiKey(s.project)).key, mock: mockEnabled() });
+        if (event) appendEvent(event);
+      }
+    } catch {
+      // jamais bloquant pour la fenêtre
+    } finally {
+      loopBusy = false;
+    }
+  }
 
   const server = createServer(async (req, res) => {
     try {
@@ -315,6 +341,10 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       case "GET /api/reliability": {
         const events = projectEvents(q("path"));
         return send(res, 200, reliability(events, loadFeedback()));
+      }
+      case "GET /api/threshold-suggestion": {
+        const path = resolve(expandHome(q("path")));
+        return send(res, 200, suggestThreshold(projectEvents(q("path")), loadFeedback(), loadProjectConfig(path).threshold));
       }
       case "GET /api/replay": {
         const threshold = Number(q("threshold"));

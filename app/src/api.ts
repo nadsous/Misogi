@@ -38,6 +38,16 @@ export interface MisogiEvent {
   summary?: { request: string; files: string[]; test?: { command: string; failed: boolean }; checks?: { command: string; failed: boolean; after_last_edit: boolean }[]; final: string };
   facts?: { file_changes: number; checks_run: number; verified_after_last_edit: boolean; failed_after_last_edit: boolean };
   skipped?: "no_changes" | "verified";
+  prompt?: { clear: number; missing: string | null; size: string; model: string; skill: { name: string; path?: string; p: number } | null; section: { name: string; p: number } | null; injected: boolean };
+  review?: Review;
+  compact?: { kept: string[]; candidates: number };
+  loop?: { signal: string; stuck: number };
+}
+
+export interface Review {
+  claims: { text: string; verdict: "supported" | "contradicted" | "not_in_diff" | "not_a_change"; p: number }[];
+  files: { path: string; related: number; sensitive: number }[];
+  suggested_check?: { command: string; p: number };
 }
 
 export type Verdict = "right" | "wrong";
@@ -48,6 +58,14 @@ export interface Reliability {
   accuracy: number | null;
   falseAlarms: number;
   missed: number;
+  byHook?: Record<string, { rated: number; right: number; accuracy: number | null }>;
+}
+
+export interface ThresholdSuggestion {
+  rated: number;
+  needed: number;
+  threshold: number | null;
+  gain: number;
 }
 
 export interface Replay {
@@ -73,7 +91,7 @@ export type OverrideAction = "allow" | "relaunch";
 export interface Busy {
   agent: Agent;
   project: string;
-  hook: "stop" | "pretool";
+  hook: "stop" | "pretool" | "prompt";
   since: number;
 }
 
@@ -121,6 +139,7 @@ export interface ProjectConfig {
   max_state_tokens: number;
   guard: { enabled: boolean; mode: "shadow" | "active"; threshold: number };
   tickets: boolean;
+  assist: { prompt: boolean; review: boolean; compact: boolean; loops: boolean };
 }
 
 /** Projet où un agent a travaillé récemment, sans Misogi. */
@@ -191,6 +210,7 @@ export const api = {
   feedback: () => call<Record<string, Verdict>>("GET", "/api/feedback"),
   setFeedback: (key: string, verdict: Verdict | null) => call<Record<string, Verdict>>("POST", "/api/feedback", { key, verdict }),
   reliability: (path: string) => call<Reliability>("GET", `/api/reliability?path=${encodeURIComponent(path)}`),
+  thresholdSuggestion: (path: string) => call<ThresholdSuggestion>("GET", `/api/threshold-suggestion?path=${encodeURIComponent(path)}`),
   replay: (path: string, threshold: number) => call<Replay>("GET", `/api/replay?path=${encodeURIComponent(path)}&threshold=${threshold}`),
   removeProject: (path: string) => call("POST", "/api/projects/remove", { path }),
   integrations: () => call<Integrations>("GET", "/api/integrations"),

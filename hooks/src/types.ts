@@ -2,7 +2,7 @@
 // Tout ce qui suit l'adaptateur ignore quel agent a produit l'événement.
 
 export type Agent = "claude" | "codex" | "kimi";
-export type HookKind = "stop" | "pretool" | "compact" | "route" | "skill";
+export type HookKind = "stop" | "pretool" | "prompt" | "compact" | "loop" | "route" | "skill";
 export type Mode = "shadow" | "active";
 export type StateLevel = "full" | "reduced" | "minimal";
 export type Decision = "allow" | "block" | "would_block" | "error";
@@ -87,6 +87,33 @@ export interface MisogiEvent {
   skipped?: "no_changes" | "verified";
   /** Ticket lié (GitHub, GitLab, Linear) dont Jev a jugé les critères d'acceptation. */
   ticket?: { provider: "github" | "gitlab" | "linear"; id: string; title: string; url: string };
+  /** Hook prompt : relecture de la demande avant que l'agent parte (voir prompt.ts). */
+  prompt?: {
+    clear: number;
+    missing: string | null;
+    size: string;
+    model: string;
+    skill: { name: string; path?: string; p: number } | null;
+    section: { name: string; p: number } | null;
+    /** Vrai si ces pistes ont été données à l'agent (mode Protéger). */
+    injected: boolean;
+  };
+  /** Hook stop : relecture du diff (voir review.ts). */
+  review?: Review;
+  /** Hook compact : consignes gardées et redonnées à l'agent après la compaction (voir compact.ts). */
+  compact?: { kept: string[]; candidates: number };
+  /** Détection de boucle (voir loops.ts) : ce qui se répète. */
+  loop?: { signal: string; stuck: number };
+}
+
+/** Relecture du diff à la fin du tour. */
+export interface Review {
+  /** Affirmations du message final, confrontées au diff. */
+  claims: { text: string; verdict: "supported" | "contradicted" | "not_in_diff" | "not_a_change"; p: number }[];
+  /** Fichiers modifiés : lien avec la demande et sensibilité, triés du plus au moins à relire. */
+  files: { path: string; related: number; sensitive: number }[];
+  /** Test ou vérification conseillé quand rien n'a vérifié le travail. */
+  suggested_check?: { command: string; p: number };
 }
 
 export type Profile = "default" | "client";
@@ -121,6 +148,19 @@ export interface ProjectConfig {
   guard: GuardConfig;
   /** Relier la session à son ticket (branche ou demande) et faire juger ses critères d'acceptation. */
   tickets: boolean;
+  assist: AssistConfig;
+}
+
+/** Aides de Jev autour du tour (voir prompt.ts, review.ts, compact.ts, loops.ts). */
+export interface AssistConfig {
+  /** Relire ta demande avant que l'agent parte : clarté, modèle conseillé, skill ou section de CLAUDE.md utile. */
+  prompt: boolean;
+  /** À la fin du tour : affirmations de l'agent contre le diff, fichiers hors sujet, zones sensibles, test conseillé. */
+  review: boolean;
+  /** À la compaction : garder tes consignes importantes et les redonner à l'agent après le résumé. */
+  compact: boolean;
+  /** Pendant le tour : repérer l'agent qui tourne en rond. */
+  loops: boolean;
 }
 
 /** Réglages globaux, dans ~/.misogi/settings.json. */

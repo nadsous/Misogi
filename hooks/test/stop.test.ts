@@ -30,7 +30,7 @@ const unfinished = {
 
 describe("hook Stop", () => {
   it("en shadow, loggue would_block sans rien renvoyer à l'agent", async () => {
-    const out = await runStop(ctx, DEFAULT_CONFIG, { apiKey: "k", mock: false, ask: async () => unfinished });
+    const out = await runStop(ctx, DEFAULT_CONFIG, { apiKey: "k", mock: false, review: false, ask: async () => unfinished });
     expect(out.block).toBeNull();
     expect(out.event.decision).toBe("would_block");
     expect(out.event.input_tokens).toBe(1240);
@@ -41,7 +41,7 @@ describe("hook Stop", () => {
 
   it("en actif, relance jusqu'à la limite puis laisse passer en le signalant (pas de boucle infinie)", async () => {
     const config = { ...DEFAULT_CONFIG, mode: "active" as const, max_relaunches: 2 };
-    const deps = { apiKey: "k", mock: false, ask: async () => unfinished };
+    const deps = { apiKey: "k", mock: false, review: false, ask: async () => unfinished };
     const first = await runStop(ctx, config, { ...deps, relaunches: 0 });
     expect(first.event.decision).toBe("block");
     expect(first.block).toContain("rien ne l'a vérifié");
@@ -106,7 +106,7 @@ describe("hook Stop", () => {
   it("modifié puis vérifié avec succès : prouvé, pas d'appel à Jev", async () => {
     let asked = 0;
     const checks = [{ command: "npm test", failed: false, afterLastEdit: true, at: null, output: "12 passed" }];
-    const out = await runStop({ ...ctx, checks, editCount: 1 }, DEFAULT_CONFIG, { apiKey: "k", mock: false, ask: async () => (asked++, unfinished) });
+    const out = await runStop({ ...ctx, checks, editCount: 1 }, DEFAULT_CONFIG, { apiKey: "k", mock: false, review: false, ask: async () => (asked++, unfinished) });
     expect(asked).toBe(0);
     expect(out.event.skipped).toBe("verified");
     expect(out.event.reason).toContain("npm test");
@@ -114,7 +114,7 @@ describe("hook Stop", () => {
 
   it("un test passé AVANT la dernière modification ne prouve rien", async () => {
     const checks = [{ command: "npm test", failed: false, afterLastEdit: false, at: null, output: "" }];
-    const out = await runStop({ ...ctx, checks, editCount: 2 }, DEFAULT_CONFIG, { apiKey: "k", mock: false, ask: async () => unfinished });
+    const out = await runStop({ ...ctx, checks, editCount: 2 }, DEFAULT_CONFIG, { apiKey: "k", mock: false, review: false, ask: async () => unfinished });
     expect(out.event.skipped).toBeUndefined();
     expect(out.event.decision).toBe("would_block");
   });

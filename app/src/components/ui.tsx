@@ -1,5 +1,6 @@
 import { blobatar } from "blobatar";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { api, baseName } from "../api";
 import { TONE_BG, type Tone } from "../format";
 
@@ -22,18 +23,40 @@ export function Gauge({ value, tone }: { value: number; tone: Tone }) {
 }
 
 /** Info-bulle : au survol et au focus clavier, lue par les lecteurs d'écran. */
+/**
+ * Bulle d'aide. Elle est rendue au-dessus de tout (portail) et placée d'après l'icône, puis gardée dans la
+ * fenêtre : dans un panneau étroit, elle ne passe plus sous la colonne des projets ni hors de l'écran.
+ */
 export function Tip({ text, children }: { text: string; children?: ReactNode }) {
   const id = useId();
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const show = () => {
+    const r = anchor.current?.getBoundingClientRect();
+    if (!r) return;
+    const margin = 8;
+    const width = Math.min(240, innerWidth - margin * 2);
+    const left = Math.min(Math.max(r.left + r.width / 2 - width / 2, margin), innerWidth - width - margin);
+    // En dessous si la place le permet, sinon au-dessus (hauteur estimée d'après la longueur du texte).
+    const estimated = 16 + Math.ceil(text.length / 38) * 15;
+    const top = r.bottom + 4 + estimated > innerHeight - margin ? Math.max(margin, r.top - 4 - estimated) : r.bottom + 4;
+    setPos({ left, top, width });
+  };
+  const hide = () => setPos(null);
   return (
-    <span className="group relative inline-flex">
+    <span ref={anchor} className="inline-flex" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
       {children ?? (
         <span tabIndex={0} role="button" aria-describedby={id} aria-label="?" className="cursor-help rounded text-faint">
           ⓘ
         </span>
       )}
-      <span id={id} role="tooltip" className="pointer-events-none absolute top-full right-0 z-30 mt-1 hidden w-60 rounded-md border border-line bg-raised p-2 text-2xs text-muted shadow-lg group-focus-within:block group-hover:block">
-        {text}
-      </span>
+      {pos &&
+        createPortal(
+          <span id={id} role="tooltip" style={pos} className="pointer-events-none fixed z-[100] rounded-md border border-line bg-raised p-2 text-2xs text-muted shadow-lg">
+            {text}
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }

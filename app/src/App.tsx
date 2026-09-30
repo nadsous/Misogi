@@ -17,7 +17,8 @@ import { Strip } from "./components/Strip";
 import { Kbd } from "./components/ui";
 import { headline, plainText } from "./format";
 import { savePref, syncPrefs } from "./prefs";
-import { useSessionAlerts } from "./alerts";
+import { soundOn, useSessionAlerts } from "./alerts";
+import { playChime } from "./sound";
 import { DICTS, defaultLang, LangContext, type Lang } from "./i18n";
 import { inTauri, notify, setCollapsed } from "./platform";
 import { THEMES, THEME_BY_NAME, themeVars, type ThemeName } from "./themes";
@@ -73,6 +74,12 @@ export function App() {
       const project = e.project.split(/[\\/]/).pop();
       setAnnounce(`${DICTS[lang]["a11y.newDecision"]} · ${project} · ${text}`);
       if (e.limit_reached) return void notify(DICTS[lang]["notify.limit"], `${project} · ${text}`);
+      // L'agent tourne en rond : on t'appelle, fenêtre visible ou non.
+      if (e.hook === "loop") {
+        if (soundOn()) playChime("waiting");
+        return void notify(DICTS[lang]["plain.loop"], `${project} · ${e.loop?.signal ?? ""}`);
+      }
+      if (e.hook === "prompt" || e.hook === "compact") return;
       if (e.decision !== "would_block" && e.decision !== "block") return;
       void notify(e.hook === "pretool" ? DICTS[lang]["notify.guard"] : DICTS[lang].notifyTitle, `${project} · ${e.subject ?? text}`);
     },
