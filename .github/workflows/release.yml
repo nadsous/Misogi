@@ -37,6 +37,7 @@ jobs:
             args: ""
     runs-on: ${{ matrix.os }}
     env:
+      NO_STRIP: true # AppImage : voir ci.yml
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}

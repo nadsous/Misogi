@@ -53,6 +53,9 @@ jobs:
       # Build de vérification : pas de signature des mises à jour (la clé n'est donnée qu'au workflow Release).
       - run: npx tauri build --config src-tauri/tauri.ci.conf.json
         working-directory: app
+        env:
+          # strip d'Ubuntu 22.04 ne connaît pas les sections des modules natifs récents (linuxdeploy échoue).
+          NO_STRIP: true
       - uses: actions/upload-artifact@v4
         with:
           name: misogi-${{ matrix.os }}
