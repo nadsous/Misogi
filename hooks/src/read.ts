@@ -6,9 +6,10 @@
 // fichier, besoin du fichier entier, réponse incertaine → la lecture passe telle quelle.
 
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { humanText, type Entry } from "./adapters/claude.js";
+import { misogiHome } from "./config.js";
 import { readJsonlTail } from "./adapters/common.js";
 import { askJev, questionTypes, type JevResult, type Question } from "./jev.js";
 import { redactDeep } from "./redact.js";
@@ -182,4 +183,45 @@ export function readIntent(transcript: string): { request: string; agentNote: st
 
 export function resolveFile(project: string, filePath: string): string {
   return isAbsolute(filePath) ? filePath : join(project, filePath);
+}
+
+// --- Kimi et Codex : leurs hooks ne peuvent pas réécrire une lecture, seulement la refuser avec une raison que
+// l'agent lit. Misogi refuse donc la lecture entière en indiquant la partie utile ; si l'agent redemande quand
+// même le fichier entier, la deuxième lecture passe (pas de boucle).
+
+/** Fichier lu en entier par une commande shell simple (cat, type, Get-Content), ou null. */
+export function shellReadTarget(command: string): string | null {
+  const m = /^\s*(?:cat|type|Get-Content|gc)\s+(?:-(?:Raw|Encoding\s+\S+)\s+)*(["']?)([^\s"'|;&<>]+)\1\s*$/i.exec(command);
+  return m ? m[2]! : null;
+}
+
+function redirectFile(agent: string, session: string): string {
+  return join(misogiHome(), "read-redirects", `${agent}-${session.replace(/[^\w-]/g, "")}.json`);
+}
+
+export function wasRedirected(agent: string, session: string, file: string): boolean {
+  try {
+    return (JSON.parse(readFileSync(redirectFile(agent, session), "utf8")) as string[]).includes(file);
+  } catch {
+    return false;
+  }
+}
+
+export function markRedirected(agent: string, session: string, file: string): void {
+  const path = redirectFile(agent, session);
+  let list: string[] = [];
+  try {
+    list = JSON.parse(readFileSync(path, "utf8")) as string[];
+  } catch {
+    // premier fichier de la session
+  }
+  mkdirSync(join(misogiHome(), "read-redirects"), { recursive: true });
+  writeFileSync(path, JSON.stringify([...new Set([...list, file])].slice(-200)));
+}
+
+/** Ce que l'agent lit à la place du fichier : où regarder, comment relire, et comment avoir tout si besoin. */
+export function redirectMessage(how: "tool" | "shell", file: string, offset: number, limit: number, lines: number): string {
+  const end = Math.min(lines, offset + limit - 1);
+  const reread = how === "tool" ? `Relis-le avec line_offset=${offset} et n_lines=${limit}` : `Lis seulement ces lignes, par exemple : sed -n '${offset},${end}p' ${file}`;
+  return `Misogi : ${file} fait ${lines} lignes ; d'après ce que tu cherches, la partie utile est aux lignes ${offset}–${end} (choisie par Jev). ${reread}. Si tu as vraiment besoin du fichier entier, relance exactement la même lecture : elle passera.`;
 }

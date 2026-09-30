@@ -13,7 +13,7 @@ import { emptyTurn } from "../src/adapters/common.js";
 import type { MisogiEvent } from "../src/types.js";
 
 afterEach(() => {
-  for (const k of ["MISOGI_HOME", "CLAUDE_CONFIG_DIR"]) delete process.env[k];
+  for (const k of ["MISOGI_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"]) delete process.env[k];
 });
 
 const n = (p: number) => ({ answer: p, confidence: Math.max(p, 1 - p) });
@@ -46,6 +46,7 @@ describe("relecture de la demande", () => {
   it("trouve les skills avec leur description et les sections de CLAUDE.md", () => {
     const project = mkdtempSync(join(tmpdir(), "prompt-"));
     process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "claude-"));
+    process.env.CODEX_HOME = mkdtempSync(join(tmpdir(), "codex-"));
     mkdirSync(join(project, ".claude", "skills", "deploy"), { recursive: true });
     writeFileSync(join(project, ".claude", "skills", "deploy", "SKILL.md"), "---\nname: deploy\ndescription: >\n  Déploie l'appli\n  sur Lightsail\n---\n# Deploy");
     writeFileSync(join(project, "CLAUDE.md"), "# Projet\n## Facturation\nLes montants sont en centimes.\n## Tests\nnpm test");

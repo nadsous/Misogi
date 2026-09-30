@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
-import { hiddenProjects, isTracked, listProjects, misogiHome, samePath, saveProjectConfig, unhideProject, updateProject } from "./config.js";
+import { agentEnabled, hiddenProjects, isTracked, listProjects, misogiHome, samePath, saveProjectConfig, unhideProject, updateProject } from "./config.js";
 import { agentHome, portablePath } from "./platform.js";
 import type { Agent } from "./types.js";
 
@@ -59,7 +59,7 @@ export function refreshHooks(): number {
         if (!isInstalled(agent, path)) continue;
         const text = readFileSync(configFile(agent, path), "utf8");
         // À jour : bon chemin, et pour Claude les hooks ajoutés depuis (demande, compaction).
-        if (text.includes(script) && (agent !== "claude" || text.includes("claude read"))) continue;
+        if (text.includes(script) && (agent === "codex" || text.includes(`${agent} read`))) continue;
         install(agent, path);
         n++;
       } catch {
@@ -124,11 +124,12 @@ export function install(agent: Agent, project: string): InstallResult {
   const command = hookCommand(agent, script);
   const backup = backupOnce(file);
   const pretool = hookCommand(agent, script, "pretool");
+  // Recherche par le sens (misogi find / ask) : un skill dans le dossier de skills de chaque agent.
+  installSearchSkill(script, agent);
   if (agent === "claude") {
     removeFromJsonFile(legacyClaudeFile(project));
-    installSearchSkill(script);
   }
-  if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool), "utf8");
+  if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool, hookCommand("kimi", script, "read")), "utf8");
   else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent], agent === "claude" ? claudeExtras(script) : undefined));
   if (!isTracked(project)) saveProjectConfig(project, {});
   updateProject(project, (a) => [...new Set([...a, agent])]);
@@ -156,7 +157,7 @@ export function uninstall(agent: Agent, project: string): { file: string; change
   const file = configFile(agent, project);
   updateProject(project, (a) => a.filter((x) => x !== agent));
   // Plus aucun projet avec Claude : le skill de recherche n'a plus de raison d'être.
-  if (agent === "claude" && !listProjects().some((p) => p.agents.includes("claude"))) rmSync(searchSkillDir(), { recursive: true, force: true });
+  if (!listProjects().some((p) => p.agents.includes(agent))) rmSync(searchSkillDir(agent), { recursive: true, force: true });
   // Sans hooks, plus de décision de routage : Claude Code ne doit plus passer par Misogi.
   if (agent === "claude") {
     try {
@@ -169,6 +170,9 @@ export function uninstall(agent: Agent, project: string): { file: string; change
   if (!existsSync(file)) return { file, changed: legacy };
   const before = readFileSync(file, "utf8");
   if (agent === "kimi") {
+    // Les hooks de Kimi sont globaux : on ne retire le bloc que si plus aucun projet suivi n'utilise Kimi.
+    // Le hook filtre déjà les projets (--tracked-only) : ce projet-ci n'est plus suivi par Kimi.
+    if (listProjects().some((p) => p.agents.includes("kimi"))) return { file, changed: false };
     const after = removeKimiHook(before);
     if (after !== before) writeFileSync(file, after, "utf8");
     return { file, changed: after !== before };
@@ -181,7 +185,7 @@ export function isInstalled(agent: Agent, project: string): boolean {
   if (agent === "claude" && existsSync(legacyClaudeFile(resolve(project))) && OURS.test(readFileSync(legacyClaudeFile(resolve(project)), "utf8"))) return true;
   if (!existsSync(file)) return false;
   const text = readFileSync(file, "utf8");
-  return agent === "kimi" ? text.includes(KIMI_BEGIN) && isTracked(resolve(project)) : OURS.test(text);
+  return agent === "kimi" ? text.includes(KIMI_BEGIN) && agentEnabled(resolve(project), "kimi") : OURS.test(text);
 }
 
 // --- Statusline Claude (globale) : donne à Misogi les quotas 5 h / 7 j du forfait.
@@ -296,7 +300,7 @@ const KIMI_BEGIN = "# >>> misogi";
 const KIMI_END = "# <<< misogi";
 const EMPTY_HOOKS = /^hooks[ \t]*=[ \t]*\[[ \t]*\][ \t]*(\r?\n|$)/m;
 
-export function addKimiHook(toml: string, command: string, pretool?: string): string {
+export function addKimiHook(toml: string, command: string, pretool?: string, read?: string): string {
   let text = removeKimiHook(toml);
   let note = "";
   if (EMPTY_HOOKS.test(text)) {
@@ -309,6 +313,8 @@ export function addKimiHook(toml: string, command: string, pretool?: string): st
   }
   const lines = [KIMI_BEGIN + note, "[[hooks]]", 'event = "Stop"', `command = '${command}'`, `timeout = ${STOP_TIMEOUT_S}`];
   if (pretool) lines.push("", "[[hooks]]", 'event = "PreToolUse"', `matcher = "${SHELL_MATCHER.kimi}"`, `command = '${pretool}'`, `timeout = ${PRETOOL_TIMEOUT_S}`);
+  // Lecture ciblée : Kimi lit avec ReadFile ; Misogi redirige vers la partie utile des gros fichiers.
+  if (read) lines.push("", "[[hooks]]", 'event = "PreToolUse"', 'matcher = "ReadFile"', `command = '${read}'`, `timeout = ${PRETOOL_TIMEOUT_S}`);
   const block = [...lines, KIMI_END].join("\n");
   const out = text.replace(/\s*$/, "") + "\n\n" + block + "\n";
   parseToml(out); // lève une erreur plutôt que d'écrire une config cassée
@@ -360,8 +366,8 @@ function writeJson(file: string, json: HooksJson): void {
 
 // --- Skill « misogi-search » (Claude Code) : dit à l'agent quand et comment utiliser misogi find / ask.
 
-export function searchSkillDir(): string {
-  return join(agentHome("claude"), "skills", "misogi-search");
+export function searchSkillDir(agent: Agent = "claude"): string {
+  return join(agentHome(agent), "skills", "misogi-search");
 }
 
 export function searchSkill(cli: string): string {
@@ -384,9 +390,9 @@ Each search shows up in the user's Misogi window.
 `;
 }
 
-export function installSearchSkill(script: string): void {
+export function installSearchSkill(script: string, agent: Agent = "claude"): void {
   try {
-    const dir = searchSkillDir();
+    const dir = searchSkillDir(agent);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "SKILL.md"), searchSkill(script.replace(/hook\.js$/, "cli.js")), "utf8");
   } catch {

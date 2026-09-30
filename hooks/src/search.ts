@@ -76,7 +76,10 @@ export function signature(root: string, file: string): string {
     const lines = readFileSync(join(root, file), "utf8").split(/\r?\n/);
     // Le commentaire d'en-tête dit souvent mieux que les noms ce que fait le fichier.
     const header = lines.slice(0, 15).filter((l) => /^\s*(\/\/|#(?!!)|\/?\*|--|"""|''')/.test(l)).slice(0, 6).map((l) => l.trim().slice(0, 160));
-    const decl = lines.filter((l) => DECL.test(l)).slice(0, 30).map((l) => l.trim().slice(0, 120));
+    const all = lines.filter((l) => DECL.test(l));
+    const decl = all.slice(0, 30).map((l) => l.trim().slice(0, 120));
+    // Au-delà de 30 déclarations, le tri ne voit pas tout : on le dit, et le fichier passe à la vérification.
+    if (all.length > 30) decl.push(`… et ${all.length - 30} autres déclarations`);
     return [...header, ...(decl.length ? decl : lines.slice(0, 8).map((l) => l.trim().slice(0, 120)))].join("\n");
   } catch {
     return "";
@@ -128,10 +131,15 @@ export async function find(root: string, query: string, dir: string, config: Pro
       const questions: Record<string, Question> = Object.fromEntries(
         batch.map((_, i) => [`f${i}`, { type: "noul", instructions: `Could the file \`files[${i}]\` (its path and declarations) contain the code described in \`query\`?`, criteria: { true: "Likely: its path or declarations match what is described", false: "Unlikely: unrelated to what is described" } }]),
       );
-      const state = { query, files: batch.map((f) => ({ path: f, declarations: signature(root, f) })) };
+      const sigs = batch.map((f) => signature(root, f));
+      const state = { query, files: batch.map((f, i) => ({ path: f, declarations: sigs[i] })) };
       const r = await call(deps, config, state, questions, () => mockAnswers(batch, query, root));
       tokens += r.inputTokens;
-      return batch.map((f, i) => ({ path: f, p: Number(r.answers[`f${i}`]?.answer ?? 0) }));
+      return batch.map((f, i) => {
+        const p = Number(r.answers[`f${i}`]?.answer ?? 0);
+        // Déclarations tronquées : le tri n'a pas tout vu, la vérification lira le contenu.
+        return { path: f, p: sigs[i]!.includes("autres déclarations") ? Math.max(p, 0.3) : p };
+      });
     })
   ).flat();
   const candidates = screened.filter((s) => s.p >= 0.3).sort((a, b) => b.p - a.p).slice(0, 8);

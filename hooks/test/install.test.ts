@@ -14,12 +14,14 @@ beforeEach(() => {
   process.env.KIMI_HOME = mkdtempSync(join(tmpdir(), "kimi-home-"));
   // Jamais la vraie config Claude (~/.claude/settings.json) : la statusline y est globale.
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "claude-home-"));
+  process.env.CODEX_HOME = mkdtempSync(join(tmpdir(), "codex-home-"));
 });
 
 afterEach(() => {
   delete process.env.MISOGI_HOME;
   delete process.env.KIMI_HOME;
   delete process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CODEX_HOME;
 });
 
 describe("hooks après une mise à jour de l'appli", () => {
@@ -129,6 +131,18 @@ describe("installation Kimi", () => {
 
   it("refuse des hooks déclarés en ligne", () => {
     expect(() => addKimiHook('hooks = [{ event = "Stop", command = "x" }]\n', "c")).toThrow(/\[\[hooks\]\]/);
+  });
+
+  it("garde le bloc global tant qu'un autre projet utilise Kimi", () => {
+    const other = mkdtempSync(join(tmpdir(), "misogi-proj-"));
+    writeFileSync(join(process.env.KIMI_HOME!, "config.toml"), config);
+    install("kimi", project);
+    install("kimi", other);
+    uninstall("kimi", project);
+    expect(isInstalled("kimi", project)).toBe(false);
+    expect(isInstalled("kimi", other)).toBe(true);
+    uninstall("kimi", other);
+    expect(readFileSync(join(process.env.KIMI_HOME!, "config.toml"), "utf8")).toBe(config);
   });
 
   it("écrit dans ~/.kimi/config.toml", () => {

@@ -105,7 +105,7 @@ export interface MisogiEvent {
   /** Détection de boucle (voir loops.ts) : ce qui se répète. */
   loop?: { signal: string; stuck: number };
   /** Lecture ciblée (voir read.ts) : fenêtre donnée à l'agent, ou null si la lecture est restée entière. */
-  read?: { file: string; lines: number; window: [number, number] | null; p: number; /** Tokens estimés gardés hors du contexte. */ saved?: number };
+  read?: { file: string; lines: number; window: [number, number] | null; p: number; /** Tokens estimés gardés hors du contexte. */ saved?: number; /** rewrite : lecture remplacée (Claude) ; redirect : l'agent a été invité à relire la partie utile (Kimi, Codex). */ mode?: "rewrite" | "redirect" };
   /** Recherche find / ask (voir search.ts) : ce qui a été demandé et trouvé. */
   search?: { query: string; scanned: number; results: { path: string; line?: number; p: number }[] };
   /** Routeur (voir router.ts) : le modèle choisi pour ce tour. */

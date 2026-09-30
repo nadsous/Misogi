@@ -12,7 +12,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { isAgent, STOP_ADAPTERS } from "./adapters/index.js";
 import type { HookReply, StopAdapter } from "./adapters/common.js";
-import { isTracked, loadProjectConfig, misogiHome, mockEnabled } from "./config.js";
+import { agentEnabled, isTracked, loadProjectConfig, misogiHome, mockEnabled } from "./config.js";
 import { gitChangesSince, withGitEvidence } from "./evidence.js";
 import { runGuard } from "./guard.js";
 import { previousStatusline } from "./install.js";
@@ -22,7 +22,10 @@ import { addPending, clearBusy, isHeadless, markBusy, recordRelaunch, relaunchCo
 import { runStop } from "./stop.js";
 import { contextAfterCompact, runCompact } from "./compact.js";
 import { previousAgentMessage, runPrompt } from "./prompt.js";
-import { readIntent, resolveFile, runRead } from "./read.js";
+import { markRedirected, readIntent, redirectMessage, resolveFile, runRead, shellReadTarget, wasRedirected } from "./read.js";
+import { readJsonlTail } from "./adapters/common.js";
+import { turnFromRollout } from "./adapters/codex.js";
+import { kimiWirePath, turnFromWire } from "./adapters/kimi.js";
 import { decideRoute } from "./router.js";
 import { projectRoot } from "./platform.js";
 import { ticketFor } from "./tickets.js";
@@ -101,7 +104,7 @@ function statusline(raw: string): void {
 
 async function stop(adapter: StopAdapter, input: Record<string, unknown>, trackedOnly: boolean): Promise<void> {
   const raw = adapter.context(input);
-  if (trackedOnly && !isTracked(raw.project)) return;
+  if (trackedOnly && !agentEnabled(raw.project, adapter.agent)) return;
   // Fichiers modifiés par des commandes shell (sed, scripts…) : git les voit, les outils d'édition non.
   const ctx = withGitEvidence(raw, gitChangesSince(raw.project, raw.startedAt));
   const config = loadProjectConfig(ctx.project);
@@ -143,11 +146,63 @@ async function stop(adapter: StopAdapter, input: Record<string, unknown>, tracke
   if (block) reply(adapter.block(block));
 }
 
+/** Ce que cherche l'agent (ta demande, son dernier message), lu dans la session de chaque agent. */
+function intentFor(agent: "claude" | "codex" | "kimi", input: Record<string, unknown>): { request: string; agentNote: string } {
+  try {
+    if (agent === "claude") return readIntent(String(input.transcript_path ?? ""));
+    const cwd = String(input.cwd ?? process.cwd());
+    const file = agent === "kimi" ? kimiWirePath(cwd, String(input.session_id ?? "")) : String(input.transcript_path ?? "");
+    if (!file) return { request: "", agentNote: "" };
+    const turn = agent === "kimi" ? turnFromWire(readJsonlTail(file), cwd) : turnFromRollout(readJsonlTail(file), cwd);
+    return { request: turn.request, agentNote: turn.lastAssistantText };
+  } catch {
+    return { request: "", agentNote: "" };
+  }
+}
+
+/**
+ * Kimi et Codex : lecture entière d'un gros fichier → refusée avec la partie utile à relire (leurs hooks ne peuvent
+ * pas réécrire la lecture). Une seule fois par fichier et par session : si l'agent insiste, il a le fichier entier.
+ */
+async function redirectRead(agent: "codex" | "kimi", input: Record<string, unknown>, project: string, session: string, target: { file: string; offset?: unknown; limit?: unknown }, how: "tool" | "shell"): Promise<string | null> {
+  const config = loadProjectConfig(project);
+  if (!config.assist.read) return null;
+  const filePath = resolveFile(project, target.file);
+  if (wasRedirected(agent, session, filePath)) return null;
+  extendDeadline(Math.max(config.timeout_ms * 2, 3000) + 1500);
+  const { key } = await getApiKey(project);
+  const { event, narrowed } = await runRead({ project, session, filePath, offset: target.offset, limit: target.limit, ...intentFor(agent, input) }, config, { apiKey: key, mock: mockEnabled() });
+  if (!narrowed || !event?.read) {
+    if (event) await record({ ...event, agent });
+    return null;
+  }
+  markRedirected(agent, session, filePath);
+  const [from, to] = event.read.window!;
+  await record({ ...event, agent, reason: `Lecture redirigée vers les lignes ${from}–${to} sur ${event.read.lines}.`, read: { ...event.read, mode: "redirect" } });
+  return redirectMessage(how, event.read.file, narrowed.offset, narrowed.limit, event.read.lines);
+}
+
+/** Kimi : ReadFile d'un gros fichier sans line_offset ni n_lines. */
+async function kimiRead(input: Record<string, unknown>): Promise<void> {
+  const { project, session } = common(input);
+  const tool = (input.tool_input ?? {}) as Record<string, unknown>;
+  const file = typeof tool.path === "string" ? tool.path : "";
+  if (!file || !agentEnabled(project, "kimi")) return;
+  const reason = await redirectRead("kimi", input, project, session, { file, offset: tool.line_offset, limit: tool.n_lines }, "tool");
+  if (reason) reply(STOP_ADAPTERS.kimi.deny(reason));
+}
+
 async function pretool(adapter: StopAdapter, input: Record<string, unknown>, trackedOnly: boolean): Promise<void> {
   const tool = adapter.tool(input);
   if (!tool) return;
-  if (trackedOnly && !isTracked(tool.project)) return;
+  if (trackedOnly && !agentEnabled(tool.project, adapter.agent)) return;
   const config = loadProjectConfig(tool.project);
+  // Kimi, Codex : « cat gros-fichier » → la partie utile d'abord (Claude a son hook sur l'outil Read).
+  const target = adapter.agent !== "claude" ? shellReadTarget(tool.command) : null;
+  if (target && adapter.agent !== "claude") {
+    const reason = await redirectRead(adapter.agent, input, tool.project, tool.session, { file: target }, "shell");
+    if (reason) return reply(adapter.deny(reason));
+  }
   if (!config.guard.enabled) return;
   const { key } = await getApiKey(tool.project);
   const busy = markBusy({ agent: adapter.agent, project: tool.project, hook: "pretool" }, `${adapter.agent}-${tool.session}-pretool`);
@@ -248,9 +303,10 @@ async function main(): Promise<void> {
   if ((agent === "claude" || agent === "codex") && hook === "prompt") return prompt(agent, input);
   if (agent === "claude" && hook === "precompact") return precompact(input);
   if (agent === "claude" && hook === "read") return read(input);
+  if (agent === "kimi" && hook === "read") return kimiRead(input);
   if (agent === "claude" && hook === "session") return session(input);
   if (!isAgent(agent) || (hook !== "stop" && hook !== "pretool")) {
-    process.stderr.write(`misogi: combinaison non prise en charge « ${agent} ${hook} » (disponible : claude|codex|kimi stop|pretool, claude|codex prompt, claude precompact|session|read)\n`);
+    process.stderr.write(`misogi: combinaison non prise en charge « ${agent} ${hook} » (disponible : claude|codex|kimi stop|pretool, claude|codex prompt, claude precompact|session|read, kimi read)\n`);
     return;
   }
   const trackedOnly = flags.includes("--tracked-only");

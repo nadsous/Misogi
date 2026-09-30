@@ -169,6 +169,14 @@ export function updateProject(path: string, agents: (current: Agent[]) => Agent[
   writeFileSync(registryPath(), JSON.stringify(list, null, 2) + "\n", "utf8");
 }
 
+/**
+ * Pour un hook global (Kimi) : ce projet a-t-il cet agent branché ? Un projet suivi par Misogi mais dont on a
+ * retiré Kimi ne doit plus réagir aux sessions Kimi.
+ */
+export function agentEnabled(path: string, agent: Agent): boolean {
+  return listProjects().some((p) => samePath(p.path, path) && p.agents.includes(agent));
+}
+
 /** Retire un projet du registre (sans toucher à ses fichiers). */
 export function forgetProject(path: string): void {
   updateProject(path, () => []);
