@@ -19,7 +19,8 @@ const TEXT = new Set(
 const SKIP = /(^|\/)(node_modules|\.git|dist|build|out|target|vendor|coverage|\.next|\.nuxt|\.turbo|\.cache|__pycache__)(\/|$)|\.(min\.js|lock|map)$|package-lock\.json$/;
 const MAX_FILES = 600;
 const MAX_FILE_BYTES = 200 * 1024;
-const SCREEN_BATCH = 40;
+// Par 10 : au-delà, les réponses de Jev s'aplatissent (tout autour de 0,7) et le bon fichier se perd dans le lot.
+const SCREEN_BATCH = 10;
 const ASK_BATCH = 8;
 const CHUNK_LINES = 40;
 const CONCURRENCY = 4;
@@ -73,8 +74,10 @@ const DECL = /^\s*(export\s|pub\s|public\s|private\s|protected\s|func\s|def\s|cl
 export function signature(root: string, file: string): string {
   try {
     const lines = readFileSync(join(root, file), "utf8").split(/\r?\n/);
+    // Le commentaire d'en-tête dit souvent mieux que les noms ce que fait le fichier.
+    const header = lines.slice(0, 15).filter((l) => /^\s*(\/\/|#(?!!)|\/?\*|--|"""|''')/.test(l)).slice(0, 6).map((l) => l.trim().slice(0, 160));
     const decl = lines.filter((l) => DECL.test(l)).slice(0, 30).map((l) => l.trim().slice(0, 120));
-    return (decl.length ? decl : lines.slice(0, 8).map((l) => l.trim().slice(0, 120))).join("\n");
+    return [...header, ...(decl.length ? decl : lines.slice(0, 8).map((l) => l.trim().slice(0, 120)))].join("\n");
   } catch {
     return "";
   }
@@ -117,7 +120,7 @@ export interface SearchResult {
 export async function find(root: string, query: string, dir: string, config: ProjectConfig, deps: SearchDeps, opts: { n?: number; min?: number } = {}): Promise<SearchResult> {
   const files = listFiles(root, dir);
   let tokens = 0;
-  // 1. Tri : chemin + déclarations, 40 fichiers par requête.
+  // 1. Tri : chemin, commentaire d'en-tête et déclarations, 10 fichiers par requête.
   const batches: string[][] = [];
   for (let i = 0; i < files.length; i += SCREEN_BATCH) batches.push(files.slice(i, i + SCREEN_BATCH));
   const screened = (
