@@ -85,7 +85,7 @@ Chaque thème recolore la goutte de verre du logo. Choisis-la dans **Réglages �
 Il faut Node 20+ et au moins un agent parmi Claude Code, Codex et Kimi Code.
 
 ```sh
-git clone https://github.com/<toi>/misogi && cd misogi
+git clone https://github.com/nadsous/Misogi && cd Misogi
 npm install
 npm run build
 npm run serve            # ouvre http://127.0.0.1:4317

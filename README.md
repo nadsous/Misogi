@@ -109,7 +109,7 @@ The window never talks to your agent. Hooks write one JSON line per decision; th
 Requirements: Node 20+, and at least one of Claude Code, Codex or Kimi Code.
 
 ```sh
-git clone https://github.com/<you>/misogi && cd misogi
+git clone https://github.com/nadsous/Misogi && cd Misogi
 npm install
 npm run build
 npm run serve            # open http://127.0.0.1:4317
