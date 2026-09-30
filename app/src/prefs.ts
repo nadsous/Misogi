@@ -4,7 +4,7 @@
 
 import { api } from "./api";
 
-const KEYS = ["misogi.theme", "misogi.lang", "misogi.quotas", "misogi.autocollapse"];
+const KEYS = ["misogi.theme", "misogi.lang", "misogi.quotas", "misogi.autocollapse", "misogi.sound", "misogi.notifyDone"];
 
 /** Tant que la copie du serveur n'est pas lue, on n'y écrit rien : le thème par défaut écraserait le tien. */
 let synced = false;

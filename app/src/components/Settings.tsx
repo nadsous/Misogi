@@ -3,6 +3,7 @@ import { AGENT_LABEL, AGENTS, api, type Agent, type GlobalSettings, type Integra
 import { useT, type Lang } from "../i18n";
 import { inTauri } from "../platform";
 import { savePref } from "../prefs";
+import { playChime } from "../sound";
 import { THEMES, themeVars, type ThemeName } from "../themes";
 import { Logo } from "./Brand";
 import { Code } from "./Detail";
@@ -161,6 +162,35 @@ function GlobalSettingsPanel() {
   return (
     <div className="space-y-3 border-t border-line pt-4">
       <IntegrationsPanel />
+      <div className="space-y-1">
+        <Row label={t("sound.label")}>
+          <span className="flex items-center gap-2">
+            <button onClick={() => (playChime("done"), setTimeout(() => playChime("waiting"), 900))} className="text-2xs text-accent hover:underline">
+              ▶ {t("sound.test")}
+            </button>
+            <input
+              type="checkbox"
+              aria-label={t("sound.label")}
+              defaultChecked={localStorage.getItem("misogi.sound") !== "off"}
+              onChange={(e) => savePref("misogi.sound", e.target.checked ? "on" : "off")}
+              className="size-4 accent-(--accent)"
+            />
+          </span>
+        </Row>
+        <p className="text-2xs leading-relaxed text-faint">{t("sound.help")}</p>
+      </div>
+      <div className="space-y-1">
+        <Row label={t("notifyDone.label")}>
+          <input
+            type="checkbox"
+            aria-label={t("notifyDone.label")}
+            defaultChecked={localStorage.getItem("misogi.notifyDone") !== "off"}
+            onChange={(e) => savePref("misogi.notifyDone", e.target.checked ? "on" : "off")}
+            className="size-4 accent-(--accent)"
+          />
+        </Row>
+        <p className="text-2xs leading-relaxed text-faint">{t("notifyDone.help")}</p>
+      </div>
       {inTauri && (
         <Row label={t("autoCollapse")}>
           <input

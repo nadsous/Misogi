@@ -17,6 +17,7 @@ import { Strip } from "./components/Strip";
 import { Kbd } from "./components/ui";
 import { headline, plainText } from "./format";
 import { savePref, syncPrefs } from "./prefs";
+import { useSessionAlerts } from "./alerts";
 import { DICTS, defaultLang, LangContext, type Lang } from "./i18n";
 import { inTauri, notify, setCollapsed } from "./platform";
 import { THEMES, THEME_BY_NAME, themeVars, type ThemeName } from "./themes";
@@ -78,6 +79,7 @@ export function App() {
     [lang],
   );
   const { events, sessions, online, pending, busy } = useStream(onDecision);
+  useSessionAlerts(sessions, pending, lang);
 
   const refresh = useCallback(() => {
     api.projects().then(setProjects).catch(() => {});

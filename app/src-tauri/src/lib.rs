@@ -166,6 +166,13 @@ fn create_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .resizable(true)
         .min_inner_size(STRIP, 200.0);
 
+    // Le son de fin de tour doit pouvoir jouer sans clic préalable dans la fenêtre. Ces arguments remplacent
+    // ceux de Tauri par défaut, d'où la reprise de --disable-features.
+    #[cfg(windows)]
+    {
+        builder = builder.additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required");
+    }
+
     // Premier lancement : ancrée au bord droit, pleine hauteur. Ensuite, window-state restaure écran, bord et taille.
     if let Some(m) = app.primary_monitor()? {
         let scale = m.scale_factor();
