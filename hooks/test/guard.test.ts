@@ -84,13 +84,20 @@ describe("état partagé avec la fenêtre", () => {
   });
 
   it("n'attend personne en mode sans interface ou sans fenêtre ouverte", () => {
-    process.env.MISOGI_HOME = mkdtempSync(join(tmpdir(), "misogi-rt-"));
-    expect(someoneCanClick()).toBe(false);
-    heartbeat(1);
-    expect(someoneCanClick()).toBe(true);
-    process.env.CI = "true";
-    expect(isHeadless()).toBe(true);
-    expect(someoneCanClick()).toBe(false);
+    // Le test tourne lui-même en CI : on part d'un environnement « avec écran ».
+    const saved = { ...process.env };
+    for (const k of ["MISOGI_HEADLESS", "CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL"]) delete process.env[k];
+    try {
+      process.env.MISOGI_HOME = mkdtempSync(join(tmpdir(), "misogi-rt-"));
+      expect(someoneCanClick()).toBe(false);
+      heartbeat(1);
+      expect(someoneCanClick()).toBe(true);
+      process.env.CI = "true";
+      expect(isHeadless()).toBe(true);
+      expect(someoneCanClick()).toBe(false);
+    } finally {
+      process.env = saved;
+    }
   });
 });
 
