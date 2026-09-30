@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, baseName, type MisogiEvent, type OverrideAction, type Verdict } from "../api";
-import { headline, pct, time, tone, TONE_BG, TONE_TEXT, type Tone } from "../format";
+import { headline, pct, plainText, time, tone, TONE_BG, TONE_TEXT, type Tone } from "../format";
 import { useT, type Key } from "../i18n";
 import { LOGO_PATH, LOGO_VIEWBOX } from "../logo";
 import { AgentIcon } from "./Brand";
@@ -72,7 +72,7 @@ function DecisionCard({ event: e, onOpen, showProject, arriving, verdict, onRate
   const t = useT();
   const tn = tone(e);
   const h = headline(e);
-  const title = h ? t(h) : e.reason ?? "";
+  const title = h ? t(h) : plainText(e.reason ?? "");
   // Actions pour le prochain arrêt de cette session : utiles quand Jev bloque, ou quand la limite est atteinte.
   const canAct = e.hook === "stop" && e.session && (e.decision === "block" || e.decision === "would_block" || e.limit_reached);
   return (
@@ -103,7 +103,7 @@ function DecisionCard({ event: e, onOpen, showProject, arriving, verdict, onRate
           </span>
         </div>
         <p className={`mt-1.5 text-[15px] leading-snug font-medium ${h === "plain.agree" || h === "plain.guardOk" ? "text-fg" : TONE_TEXT[tn]}`}>{title}</p>
-        {e.summary?.request && <p className="mt-1 line-clamp-2 text-2xs leading-snug text-muted italic">« {e.summary.request} »</p>}
+        {e.summary?.request && <p className="mt-1 line-clamp-2 text-2xs leading-snug text-muted italic">« {plainText(e.summary.request)} »</p>}
         {e.ticket && (
           <span className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5 text-2xs text-muted">
             <span className="font-mono text-fg">{e.ticket.id}</span>

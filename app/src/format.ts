@@ -5,6 +5,22 @@ import type { MisogiEvent } from "./api";
 
 export type Tone = "ok" | "warn" | "bad" | "muted";
 
+/** Markdown → texte simple, pour les aperçus d'une ligne et les notifications (pas de ** ni de # qui traînent). */
+export function plainText(md: string): string {
+  return md
+    .replace(/```[^\n]*\n?/g, "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+)/gm, "")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(^|[^\w*])[*_]([^*_\n]+)[*_](?=[^\w*]|$)/g, "$1$2")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*([-*_]\s*){3,}$/gm, "")
+    .replace(/\s*\n\s*/g, " ")
+    .trim();
+}
+
 /** Vert = accord, orange = confiance faible, rouge = bloqué ou aurait bloqué. */
 export function tone(e: MisogiEvent): Tone {
   if (e.decision === "block" || e.decision === "would_block") return "bad";

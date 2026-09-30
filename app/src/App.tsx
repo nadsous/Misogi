@@ -14,7 +14,7 @@ import { Sessions } from "./components/Sessions";
 import { Settings, type Theme } from "./components/Settings";
 import { Strip } from "./components/Strip";
 import { Kbd } from "./components/ui";
-import { headline } from "./format";
+import { headline, plainText } from "./format";
 import { DICTS, defaultLang, LangContext, type Lang } from "./i18n";
 import { inTauri, notify, setCollapsed } from "./platform";
 import { THEMES, THEME_BY_NAME, themeVars, type ThemeName } from "./themes";
@@ -66,7 +66,7 @@ export function App() {
       setArriving(eventKey(e));
       setTimeout(() => setArriving((k) => (k === eventKey(e) ? null : k)), 2500);
       const h = headline(e);
-      const text = h ? DICTS[lang][h] : e.reason ?? "";
+      const text = h ? DICTS[lang][h] : plainText(e.reason ?? "");
       const project = e.project.split(/[\\/]/).pop();
       setAnnounce(`${DICTS[lang]["a11y.newDecision"]} · ${project} · ${text}`);
       if (e.limit_reached) return void notify(DICTS[lang]["notify.limit"], `${project} · ${text}`);

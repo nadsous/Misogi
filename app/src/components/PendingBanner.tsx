@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, baseName, type Pending } from "../api";
-import { headline } from "../format";
+import { headline, plainText } from "../format";
 import { useT } from "../i18n";
 import { AgentIcon } from "./Brand";
 
@@ -31,7 +31,7 @@ export function PendingBanner({ pending }: { pending: Pending[] }) {
               <span className="font-semibold text-bad">{t("pending.title")}</span>
               <span className="ml-auto text-2xs text-muted">{baseName(p.event.project)}</span>
             </div>
-            <p className="text-sm leading-snug">{h ? t(h) : p.event.reason}</p>
+            <p className="text-sm leading-snug">{h ? t(h) : plainText(p.event.reason ?? "")}</p>
             <div className="flex gap-2">
               <button autoFocus onClick={() => api.answerPending(p.id, "allow")} className="flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs font-medium hover:bg-raised">
                 {t("pending.allow")}

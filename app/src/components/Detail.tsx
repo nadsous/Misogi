@@ -3,6 +3,7 @@ import type { MisogiEvent } from "../api";
 import { pct } from "../format";
 import { useT } from "../i18n";
 import { AgentIcon } from "./Brand";
+import { Markdown } from "./Markdown";
 
 /** Détail d'une décision : state exact envoyé, probabilités par option, JSON brut. */
 export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () => void }) {
@@ -19,7 +20,11 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
         </span>
       </header>
       <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
-        {e.reason && <p className="text-[13px] leading-snug">{e.reason}</p>}
+        {e.reason && (
+          <div className="text-[13px] leading-snug">
+            <Markdown text={e.reason} />
+          </div>
+        )}
         <p className="font-mono text-2xs text-faint">
           {e.model} · {t("latency")} {e.latency_ms} ms · {e.input_tokens} {t("tokens")} · {e.state_level} · {e.project}
         </p>
@@ -130,7 +135,9 @@ function LongText({ text, className = "" }: { text: string; className?: string }
   const long = text.length > 280 || text.split("\n").length > 6;
   return (
     <dd className={className}>
-      <p className={`whitespace-pre-wrap break-words ${long && !open ? "line-clamp-6" : ""}`}>{text}</p>
+      <div className={long && !open ? "max-h-32 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}>
+        <Markdown text={text} />
+      </div>
       {long && (
         <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="mt-1 text-2xs text-accent hover:underline">
           {open ? t("summary.showLess") : t("summary.showAll")}

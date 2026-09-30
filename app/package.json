@@ -1,6 +1,6 @@
 {
   "name": "misogi-app",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -27,6 +27,8 @@
     "blobatar": "^2.7.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "simple-icons": "^16.33.0"
   }
 }

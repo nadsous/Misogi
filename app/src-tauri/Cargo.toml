@@ -1,6 +1,6 @@
 [package]
 name = "misogi"
-version = "0.2.2"
+version = "0.2.3"
 description = "Fenêtre sidecar qui affiche les décisions de Jev pendant que ton agent code"
 license = "MIT"
 edition = "2021"
