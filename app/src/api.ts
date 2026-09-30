@@ -64,6 +64,13 @@ export interface Reliability {
   byHook?: Record<string, { rated: number; right: number; accuracy: number | null }>;
 }
 
+/** Kimi et Codex passent-ils par le relais de Misogi (réglage de la machine) ? */
+export interface RelayStatus {
+  kimi: boolean;
+  codex: boolean;
+  codexModels: { slug: string; description?: string }[];
+}
+
 export interface ThresholdSuggestion {
   rated: number;
   needed: number;
@@ -143,7 +150,7 @@ export interface ProjectConfig {
   guard: { enabled: boolean; mode: "shadow" | "active"; threshold: number };
   tickets: boolean;
   assist: { prompt: boolean; review: boolean; compact: boolean; loops: boolean; read: boolean };
-  router: { enabled: boolean; models: { fast: string; balanced: string; frontier: string } };
+  router: { enabled: boolean; models: { fast: string; balanced: string; frontier: string }; kimi: { fast: string; balanced: string; frontier: string }; codex: Partial<{ fast: string; balanced: string; frontier: string }> };
 }
 
 /** Projet où un agent a travaillé récemment, sans Misogi. */
@@ -224,6 +231,8 @@ export const api = {
   answerPending: (id: string, action: OverrideAction) => call("POST", "/api/pending/answer", { id, action }),
   override: (agent: Agent, session: string, action: OverrideAction) => call("POST", "/api/override", { agent, session, action }),
   settings: () => call<GlobalSettings>("GET", "/api/settings"),
+  relay: () => call<RelayStatus>("GET", "/api/relay"),
+  setRelay: (agent: "kimi" | "codex", on: boolean) => call<{ ok: boolean; note?: string }>("POST", "/api/relay", { agent, on }),
   saveSettings: (patch: Partial<GlobalSettings>) => call<GlobalSettings & { purged: number }>("POST", "/api/settings", patch),
   remote: () => call<{ token: string; port: number; listen: string; addresses: string[] }>("GET", "/api/remote"),
   setStatusline: (on: boolean) => call("POST", "/api/usage/statusline", { on }),

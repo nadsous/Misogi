@@ -161,9 +161,14 @@ export interface ProjectConfig {
 export type Tier = "fast" | "balanced" | "frontier";
 
 export interface RouterConfig {
-  /** Claude Code passe par Misogi (ANTHROPIC_BASE_URL) et chaque tour principal part sur le modèle choisi. */
+  /** Chaque message de ce projet a son modèle, choisi par Jev (Claude Code, et Kimi / Codex s'ils passent par Misogi). */
   enabled: boolean;
+  /** Modèles Claude par niveau. */
   models: Record<Tier, string>;
+  /** Modèles Kimi par niveau (ceux de ~/.kimi/config.toml). */
+  kimi: Record<Tier, string>;
+  /** Modèles Codex par niveau ; vide = choisis d'après la liste que Codex reçoit (le plus capable, et un « mini »). */
+  codex: Partial<Record<Tier, string>>;
 }
 
 /** Aides de Jev autour du tour (voir prompt.ts, review.ts, compact.ts, loops.ts). */
@@ -186,4 +191,8 @@ export interface GlobalSettings {
   retention_days: number;
   /** Préférences de la fenêtre (thème, langue, logo…) : gardées ici, elles survivent aux mises à jour de l'appli. */
   ui?: Record<string, string>;
+  /** Kimi passe par le relais de Misogi (variable KIMI_BASE_URL de l'utilisateur). */
+  router_kimi?: boolean;
+  /** Codex passe par le relais de Misogi (openai_base_url dans ~/.codex/config.toml). */
+  router_codex?: boolean;
 }

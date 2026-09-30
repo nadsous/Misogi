@@ -19,7 +19,12 @@ export const DEFAULT_CONFIG: ProjectConfig = {
   guard: { enabled: false, mode: "shadow", threshold: 0.7 },
   tickets: true,
   assist: { prompt: true, review: true, compact: true, loops: true, read: true },
-  router: { enabled: false, models: { fast: "claude-haiku-4-5", balanced: "claude-sonnet-5-5", frontier: "claude-opus-5-5" } },
+  router: {
+    enabled: false,
+    models: { fast: "claude-haiku-4-5", balanced: "claude-sonnet-5-5", frontier: "claude-opus-5-5" },
+    kimi: { fast: "kimi-for-coding-highspeed", balanced: "kimi-for-coding", frontier: "k3" },
+    codex: {},
+  },
 };
 
 export const DEFAULT_SETTINGS: GlobalSettings = { retention_days: 30 };
@@ -57,6 +62,9 @@ export function saveProjectConfig(projectDir: string, patch: Partial<ProjectConf
   writeFileSync(projectConfigPath(projectDir), JSON.stringify({ config_version: 2, ...next }, null, 2) + "\n", "utf8");
   return next;
 }
+
+/** Un identifiant de modèle quelconque (Kimi, OpenAI) : lettres, chiffres, tirets, points, barres. */
+const anyModel = (v: unknown, fallback: string): string => (typeof v === "string" && /^[\w.\/-]{2,80}$/.test(v) ? v : fallback);
 
 /** Un identifiant de modèle Claude : lettres, chiffres, tirets, points. */
 const modelId = (v: unknown, fallback: string): string => (typeof v === "string" && /^claude-[\w.-]{2,60}$/.test(v) ? v : fallback);
@@ -96,6 +104,12 @@ function sanitize(c: ProjectConfig): ProjectConfig {
         balanced: modelId(r.models?.balanced, DEFAULT_CONFIG.router.models.balanced),
         frontier: modelId(r.models?.frontier, DEFAULT_CONFIG.router.models.frontier),
       },
+      kimi: {
+        fast: anyModel(r.kimi?.fast, DEFAULT_CONFIG.router.kimi.fast),
+        balanced: anyModel(r.kimi?.balanced, DEFAULT_CONFIG.router.kimi.balanced),
+        frontier: anyModel(r.kimi?.frontier, DEFAULT_CONFIG.router.kimi.frontier),
+      },
+      codex: Object.fromEntries((["fast", "balanced", "frontier"] as const).filter((t) => anyModel(r.codex?.[t], "")).map((t) => [t, anyModel(r.codex?.[t], "")])),
     },
     mode: c.mode === "active" ? "active" : "shadow",
     profile,
@@ -114,7 +128,7 @@ export function mockEnabled(): boolean {
 export function loadSettings(): GlobalSettings {
   try {
     const raw = JSON.parse(readFileSync(join(misogiHome(), "settings.json"), "utf8")) as Partial<GlobalSettings>;
-    return { retention_days: Math.round(num(raw.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days)), ui: cleanUi(raw.ui) };
+    return { retention_days: Math.round(num(raw.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days)), ui: cleanUi(raw.ui), router_kimi: raw.router_kimi === true, router_codex: raw.router_codex === true };
   } catch {
     return { ...DEFAULT_SETTINGS, ui: {} };
   }

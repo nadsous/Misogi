@@ -68,33 +68,66 @@ Start in **Observe** mode: Misogi only logs what Jev *would* have done. When you
 
 ## Features
 
+### What works with which agent
+
+| | Claude Code | Kimi Code | Codex |
+| --- | :---: | :---: | :---: |
+| "Is it really done?" check at the end of the turn | ✅ | ✅ | ✅ |
+| Diff review (claims, off-topic and sensitive files, check to run) | ✅ | ✅ | ✅ |
+| Request check (clear? which model? which skill?) | ✅ | ✅ | ✅ |
+| Shell guard before risky commands | ✅ | ✅ | ✅ |
+| Model router | ✅ per project | ✅ once Kimi goes through Misogi | ✅ once Codex goes through Misogi |
+| Narrowed reads of large files | ✅ rewritten | ✅ redirected | ✅ redirected (`cat`) |
+| `misogi find` / `misogi ask` as a skill | ✅ | ✅ | ✅ |
+| Compaction memory | ✅ | — | — |
+| Stuck-agent alert, session status, sound | ✅ | ✅ | ✅ |
+
+Codex support is written against its documented hook and provider formats; Claude Code and Kimi are tested end to end.
+
+### Checking the work
+
 | | |
 | --- | --- |
-| **Live sidecar** | A 380 px window docked to the edge of your screen. Always on top, never steals focus, folds into a 40 px strip when all is calm. |
-| **Three agents, one format** | Claude Code, Codex and Kimi Code, each with a small adapter. Everything else ignores which agent spoke. |
-| **Plan quotas at a glance** | Claude 5-hour and 7-day limits, Codex 5-hour and weekly limits, tokens burned by each agent, Jev calls and cost. |
-| **Session status** | Working, done, or waiting for your approval, read straight from the agents' session files, even without any hook. |
-| **What guides your agent** | The often invisible files that steer it: `CLAUDE.md`, `AGENTS.md`, skills, subagents, commands, hooks, MCP servers, per project and global. |
-| **Your projects, your keys** | Each project shows its icon (favicon, logo or app icon, found automatically), the agents plugged in, and whether its Jev key is ready. Paste a key once, test it, or reuse it for every project. |
-| **Readable decisions** | "Jev thinks the tests were not run", not raw JSON. The exact state sent and the probabilities are one click away. |
-| **Request check** | Before the agent starts, Jev reads your request: is it clear enough (or does it miss the expected result, the place to change, how far to go)? Which model is enough (Haiku for a rename, Opus for a billing refactor)? Which skill, subagent or `CLAUDE.md` section applies? In Protect mode, the useful hints are given to the agent. |
-| **Diff review** | At the end of the turn, every claim of the agent ("I added the tests") is checked against the diff, files that have nothing to do with the request are flagged, sensitive ones (auth, billing, migrations, secrets) come first in the review list, and Misogi suggests the project's check command to run (`cd apps/backend && npm run test`). |
-| **Stuck-agent alert** | The same check failing again and again? Jev tells apart an agent going in circles from one that fails differently each time and is making progress; only the first gets a sound and a notification. No hook, no delay for the agent. |
-| **Compaction memory** | When Claude Code compacts the conversation, Jev picks your lasting instructions ("never touch migrations/", "use pnpm") and they are given back word for word right after the summary. |
-| **Model router** | Optional, per project: Claude Code goes through Misogi, and for each message Jev picks Haiku, Sonnet or Opus from the size of the work (a rename on Haiku, a billing refactor on Opus). Only main turns change; within a session the model only moves up; your Claude login is passed through; if the chosen model rejects a request, it goes back to the original one. Every choice shows in the feed. |
-| **Narrowed reads** | When the agent reads a large file (400+ lines) in full, Jev picks the part that answers what it is looking for. Claude Code only gets that window (about a fifth), with a note to read the rest; Kimi and Codex, whose hooks can't rewrite a read, are told which lines to re-read (and get the whole file if they insist). Ambiguous cases are left whole. Fewer tokens re-sent on every later turn. |
-| **Search by meaning** | `misogi find "where the user signs up"` finds code by describing it, even when the words differ; `misogi ask "does it build SQL by concatenation?" api/` asks a yes/no question to every file. Claude Code, Kimi and Codex get them as a skill; nothing enters its context but the answer, and every search shows in the window. |
-| **Shell guard** | Before a risky command runs (`rm -rf`, `git push --force`, reading `.env`, uploading data…), Jev judges if it is destructive or leaks secrets, and Misogi refuses it in Protect mode. Ordinary commands run with no delay. Works in Claude Code's auto and bypass modes. |
-| **You stay in charge** | When Jev wants to send the agent back, the window gives you a few seconds: **Let it through** or **Relaunch now**. Red cards offer the same for the next stop. |
-| **No infinite loop** | At most 2 relaunches in a row (configurable); then Misogi lets it through and notifies you. |
-| **Headless & remote** | `claude -p` and CI never wait for a click. SSH sessions and dev containers send their decisions to your window with a token (`misogi remote`). |
+| **"Is it really done?"** | Facts first: nothing changed → nothing to check; a test, build, lint or type check passed after the last edit → proven, Jev isn't even called. Otherwise Jev reads the final message against those facts and flags a "done" with no proof, an "I checked" with no check, or a "done" while a check fails. |
+| **Diff review** | Every claim of the agent ("I added the tests") is checked against the diff, off-topic files are flagged, sensitive ones (auth, billing, migrations, secrets) come first in the review list, and Misogi names the project's check command to run (`cd apps/backend && npm run test`). Never blocks on its own. |
+| **Request check** | Before the agent starts: is your request clear enough, or does it miss the expected result, the place to change, how far to go? Which skill, subagent or `CLAUDE.md` section applies? In Protect mode, the useful hints are given to Claude. |
 | **Ticket-aware** | The branch (`feat/123-contact`, `ENG-42-login`) or the request (`#123`) links the session to its GitHub, GitLab or Linear ticket; Jev checks the **acceptance criteria**, not just "done?". |
-| **Tune it on your data** | Mark each decision "Jev was right / wrong" to measure its reliability on your project (per helper), replay past decisions with another threshold, and after a few ratings Misogi suggests the threshold that would have made the fewest mistakes. |
-| **Stable results** | Pin a Jev version per project so results do not change overnight. The state sent is capped at ~30k tokens and trimmed cleanly. |
-| **Safe by default** | Fail-open (if anything breaks, the agent carries on), shadow mode first, secrets masked before anything leaves your machine, keys in the OS keychain, logs purged after 30 days (configurable). |
+| **Shell guard** | Before a risky command runs (`rm -rf`, `git push --force`, reading `.env`, uploading data…), Jev judges if it is destructive or leaks secrets, and Misogi refuses it in Protect mode. Ordinary commands run with no delay, in auto and bypass modes too. |
+| **Stuck-agent alert** | The same check failing again and again? Jev tells apart an agent going in circles from one that fails differently each time and is making progress; only the first gets a sound and a notification. No hook, no delay for the agent. |
+
+### Saving tokens and your plan
+
+| | |
+| --- | --- |
+| **Model router** | For each message, Jev picks the model from the size of the work: Haiku, Sonnet or Opus for Claude Code (a rename on Haiku, a billing refactor on Opus); `kimi-for-coding-highspeed`, `kimi-for-coding` or `k3` for Kimi; a "mini" or the most capable model of your list for Codex. Only main turns change, the model never goes down within a session, your login (Claude, Kimi, ChatGPT or API key) is passed through unchanged, and if the chosen model rejects a request it goes back to the original one. Off by default. |
+| **Narrowed reads** | When the agent reads a large file (400+ lines) in full, Jev picks the part it is looking for. Claude Code only gets that window (about a fifth); Kimi and Codex are told which lines to re-read, and get the whole file if they insist. Ambiguous cases are left whole. |
+| **Search by meaning** | `misogi find "where the user signs up"` finds code by describing it, even when the words differ; `misogi ask "does it build SQL by concatenation?" api/` asks a yes/no question to every file. The three agents get them as a skill: only the answer enters their context. |
+| **Compaction memory** | When Claude Code compacts the conversation, Jev picks your lasting instructions ("never touch migrations/", "use pnpm") and they are given back word for word right after the summary. |
+
+### The window
+
+| | |
+| --- | --- |
+| **Live sidecar** | A 380 px window docked to the edge of your screen, always on top, never steals focus. It reconnects on its own after sleep and restarts its local server if needed. |
+| **A sound when it's done** | A drop when an agent finishes its turn (in every project, connected or not), two notes when Misogi needs your call, and a system notification when the window is hidden. |
+| **Readable decisions** | The verdict in one sentence, why, what Misogi did, what to do; then the facts, what Jev read, and the agent's request and answer rendered as Markdown. Raw numbers are in "Technical details". |
+| **Connect in one click** | A banner shows up when an agent works in a project without Misogi, and *Projects & keys* lists the folders where an agent worked in the last 30 days, each with a **Connect** button. |
+| **You stay in charge** | When Jev wants to send the agent back, the window gives you a few seconds: **Let it through** or **Relaunch now**. At most 2 relaunches in a row (configurable). |
+| **Quotas, sessions, guides** | Claude and Codex plan limits, tokens per agent, Jev cost, each model's share with the router and tokens kept out of context; working / done / waiting per session; the files that steer your agent (`CLAUDE.md`, skills, hooks, MCP servers). |
+| **Your projects, your keys** | Icons found automatically (or a blobatar), agents plugged in, Jev key in the OS keychain, reused when you connect a new project. |
+| **13 drops** | Themes named after drops that fall into the stream: water, dew, milk, coffee, latte, fire, dawn, matcha, washi, sakura, salt… Your theme and preferences survive updates. |
+
+### Reliable and private
+
+| | |
+| --- | --- |
+| **Safe by default** | Fail-open (if anything breaks, the agent carries on), Observe mode first, secrets masked before anything leaves your machine, keys in the OS keychain, logs purged after 30 days (configurable). |
+| **Tune it on your data** | Mark each decision "Jev was right / wrong": reliability per helper, replay of past decisions with another threshold, and after 8 ratings Misogi suggests the threshold that would have made the fewest mistakes. |
+| **Stable results** | Pin a Jev version per project. The state sent is capped at ~30k tokens and trimmed cleanly. |
+| **Headless & remote** | `claude -p` and CI never wait for a click. SSH sessions and dev containers send their decisions to your window with a token (`misogi remote`). |
+| **Signed updates** | The desktop app (Windows, macOS, Linux) updates itself from GitHub Releases, checked against a signature. |
 | **Accessible** | Keyboard navigation (arrows between decisions, ⌘K palette), screen-reader announcements, every theme checked for WCAG AA contrast in CI. |
-| **Clean uninstall** | Agent configs are backed up before any change; "Uninstall everything" removes only what Misogi added. |
-| **13 drops** | Themes named after drops that fall into the stream: water, dew, milk, coffee, latte, fire, dawn, matcha, washi, sakura, salt... |
+| **Clean uninstall** | Agent configs are backed up before any change; removing a project takes back only what Misogi added. |
 
 ## FAQ
 
@@ -124,7 +157,14 @@ Misogi is free and open source. Jev costs about $0.0001 per check. Nothing is se
 
 ## Zero telemetry
 
-Misogi sends **nothing** about you, your code or your usage to anyone: no analytics, no crash reporting, no update ping. The only outgoing request is the call to Jev (`hooks/src/jev.ts`), and only for projects where you added a key. Optional: remote sessions post to *your own* window with *your own* token. That's it, and you can check it in the code.
+Misogi sends **nothing** about you, your code or your usage to anyone: no analytics, no crash reporting. What leaves your machine:
+
+- calls to Jev (`hooks/src/jev.ts`), only for projects where you added a key;
+- if you turn the router on, your agents' requests, passed through unchanged to their provider (Anthropic, Kimi, OpenAI) with your own login (`hooks/src/router.ts`); Misogi only keeps the model used and the token counts;
+- when the app starts, a read of `latest.json` on GitHub to see if an update exists, with no identifier;
+- optionally, remote sessions post to *your own* window with *your own* token.
+
+That's it, and you can check it in the code.
 
 ## Drops (themes)
 
@@ -258,6 +298,7 @@ Adding an agent is one adapter in `hooks/src/adapters/` (hook input → `StopCon
 - [x] Claude Code subagents: their edits and checks count in the turn
 - [x] Request check, diff review, stuck-agent alert, compaction memory, suggested threshold
 - [x] Model router, narrowed reads, `misogi find` / `misogi ask`, all native and visible in the window
+- [x] Kimi and Codex: router, narrowed reads and search, like Claude Code
 - [ ] Signed macOS / Windows builds (see [docs/signing.md](docs/signing.md))
 - [ ] Optional Supabase sync across machines
 

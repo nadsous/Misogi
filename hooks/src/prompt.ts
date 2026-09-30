@@ -175,7 +175,10 @@ export interface PromptVerdict {
   section: { name: string; p: number } | null;
 }
 
-export function readPrompt(answers: JevResult["answers"], skills: Candidate[], sections: Candidate[]): PromptVerdict {
+/** Pour Kimi et Codex, les noms Haiku / Sonnet / Opus n'ont pas de sens : le niveau de modèle, en clair. */
+const TIER_FOR_SIZE: Record<string, string> = { question: "le modèle rapide", trivial: "le modèle rapide", small: "le modèle intermédiaire", medium: "le modèle intermédiaire", large: "le modèle le plus capable" };
+
+export function readPrompt(answers: JevResult["answers"], skills: Candidate[], sections: Candidate[], agent: Agent = "claude"): PromptVerdict {
   const pick = (key: string, list: Candidate[]) => {
     const a = answers[key];
     if (!a || a.answer === "none") return null;
@@ -192,7 +195,7 @@ export function readPrompt(answers: JevResult["answers"], skills: Candidate[], s
     clear,
     missing: !question && clear < UNCLEAR_AT && typeof missing === "string" && missing !== "none" ? missing : null,
     size,
-    model: MODEL_FOR_SIZE[size] ?? "Sonnet",
+    model: agent === "claude" ? (MODEL_FOR_SIZE[size] ?? "Sonnet") : (TIER_FOR_SIZE[size] ?? "le modèle intermédiaire"),
     skill: pick("skill", skills),
     section: pick("section", sections),
   };
@@ -218,7 +221,7 @@ export function reasonFor(v: PromptVerdict): string {
   const parts: string[] = [];
   if (v.missing) parts.push(`Demande peut-être floue : il manque ${MISSING_FR[v.missing] ?? v.missing}.`);
   else parts.push("Demande claire.");
-  parts.push(`${v.model} suffirait probablement (${SIZE_FR[v.size] ?? v.size}).`);
+  parts.push(`${v.model.charAt(0).toUpperCase()}${v.model.slice(1)} suffirait probablement (${SIZE_FR[v.size] ?? v.size}).`);
   if (v.skill) parts.push(`Utile ici : ${v.skill.name}.`);
   if (v.section) parts.push(`Section qui s'applique : « ${v.section.name} ».`);
   return parts.join(" ");
@@ -263,7 +266,7 @@ export async function runPrompt(ctx: PromptContext, config: ProjectConfig, deps:
   } catch (err) {
     return { context: null, event: { ...base, model: config.model, answers: {}, decision: "error", latency_ms: Date.now() - started, input_tokens: 0, reason: (err as Error).message } };
   }
-  const verdict = readPrompt(result.answers, skills, sections);
+  const verdict = readPrompt(result.answers, skills, sections, ctx.agent);
   const context = config.mode === "active" ? contextFor(verdict) : null;
   return {
     context,

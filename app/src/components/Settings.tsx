@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AGENT_LABEL, AGENTS, api, type Agent, type GlobalSettings, type Integrations, type Project, type ProjectConfig, type Reliability, type Replay, type ThresholdSuggestion } from "../api";
+import { AGENT_LABEL, AGENTS, api, type Agent, type GlobalSettings, type Integrations, type Project, type ProjectConfig, type RelayStatus, type Reliability, type Replay, type ThresholdSuggestion } from "../api";
 import { useT, type Key, type Lang } from "../i18n";
 import { inTauri } from "../platform";
 import { savePref } from "../prefs";
@@ -126,6 +126,46 @@ function ReliabilityPanel({ path, current, onApply }: { path: string; current: n
 }
 
 /** Jetons des trackers de tickets : GitHub via gh, GitLab et Linear dans le trousseau. */
+/** Kimi et Codex : les faire passer par le relais de Misogi, pour que le routeur choisisse aussi leur modèle. */
+function RelayPanel() {
+  const t = useT();
+  const [status, setStatus] = useState<RelayStatus | null>(null);
+  const [notes, setNotes] = useState<Record<string, { tone: "ok" | "bad"; text: string }>>({});
+  const load = () => api.relay().then(setStatus).catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+  if (!status) return null;
+  const toggle = async (agent: "kimi" | "codex", on: boolean) => {
+    try {
+      const r = await api.setRelay(agent, on);
+      setNotes((n) => ({ ...n, [agent]: { tone: "ok", text: r.note ?? "" } }));
+    } catch (e) {
+      setNotes((n) => ({ ...n, [agent]: { tone: "bad", text: (e as Error).message } }));
+    }
+    load();
+  };
+  return (
+    <div className="space-y-1.5 rounded-md border border-line p-2">
+      <p className="text-xs font-medium">{t("relay.title")}</p>
+      <p className="text-2xs leading-relaxed text-faint">{t("relay.lead")}</p>
+      {(["kimi", "codex"] as const).map((a) => (
+        <div key={a} className="space-y-0.5">
+          <Row label={t(`relay.${a}` as Key)} tip={t(`relay.${a}.help` as Key)}>
+            <input type="checkbox" aria-label={t(`relay.${a}` as Key)} checked={status[a]} onChange={(e) => void toggle(a, e.target.checked)} className="size-4 accent-(--accent)" />
+          </Row>
+          {notes[a]?.text && <p className={`text-2xs leading-relaxed ${notes[a]!.tone === "bad" ? "text-bad" : "text-warn"}`}>{notes[a]!.text}</p>}
+        </div>
+      ))}
+      {status.codex && (
+        <p className="text-2xs leading-relaxed text-faint">
+          {status.codexModels.length ? `${t("relay.codexModels")} ${status.codexModels.slice(0, 6).map((m) => m.slug).join(", ")}` : t("relay.codexWaiting")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function IntegrationsPanel() {
   const t = useT();
   const [status, setStatus] = useState<Integrations | null>(null);
@@ -186,6 +226,7 @@ function GlobalSettingsPanel() {
   return (
     <div className="space-y-3 border-t border-line pt-4">
       <IntegrationsPanel />
+      <RelayPanel />
       <div className="space-y-1">
         <Row label={t("sound.label")}>
           <span className="flex items-center gap-2">
@@ -452,8 +493,12 @@ function ProjectSettings({ project, agentsFound, seenModel, onChanged }: { proje
         {config.router.enabled && (
           <>
             <p className="font-mono text-2xs text-muted">
-              {config.router.models.fast} · {config.router.models.balanced} · {config.router.models.frontier}
+              Claude : {config.router.models.fast} · {config.router.models.balanced} · {config.router.models.frontier}
             </p>
+            <p className="font-mono text-2xs text-muted">
+              Kimi : {config.router.kimi.fast} · {config.router.kimi.balanced} · {config.router.kimi.frontier}
+            </p>
+            <p className="font-mono text-2xs text-muted">Codex : {config.router.codex.frontier ? `${config.router.codex.fast ?? "?"} · ${config.router.codex.balanced ?? "?"} · ${config.router.codex.frontier}` : t("router.codexAuto")}</p>
             <p className="text-2xs leading-relaxed text-warn">{t("router.warn")}</p>
           </>
         )}

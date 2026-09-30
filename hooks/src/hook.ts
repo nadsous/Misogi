@@ -12,7 +12,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { isAgent, STOP_ADAPTERS } from "./adapters/index.js";
 import type { HookReply, StopAdapter } from "./adapters/common.js";
-import { agentEnabled, isTracked, loadProjectConfig, misogiHome, mockEnabled } from "./config.js";
+import { agentEnabled, isTracked, loadProjectConfig, loadSettings, misogiHome, mockEnabled } from "./config.js";
 import { gitChangesSince, withGitEvidence } from "./evidence.js";
 import { runGuard } from "./guard.js";
 import { previousStatusline } from "./install.js";
@@ -26,7 +26,7 @@ import { markRedirected, readIntent, redirectMessage, resolveFile, runRead, shel
 import { readJsonlTail } from "./adapters/common.js";
 import { turnFromRollout } from "./adapters/codex.js";
 import { kimiWirePath, turnFromWire } from "./adapters/kimi.js";
-import { decideRoute } from "./router.js";
+import { decideRoute, routeKey } from "./router.js";
 import { projectRoot } from "./platform.js";
 import { ticketFor } from "./tickets.js";
 import type { MisogiEvent } from "./types.js";
@@ -221,25 +221,30 @@ function common(input: Record<string, unknown>): { project: string; session: str
 }
 
 /** Relire la demande avant que l'agent parte (prompt.ts). Ne bloque jamais la demande. */
-async function prompt(agent: "claude" | "codex", input: Record<string, unknown>): Promise<void> {
+async function prompt(agent: "claude" | "codex" | "kimi", input: Record<string, unknown>): Promise<void> {
   const { project, session, transcript } = common(input);
-  if (!isTracked(project)) return;
+  if (agent === "kimi" ? !agentEnabled(project, "kimi") : !isTracked(project)) return;
   const config = loadProjectConfig(project);
   const text = String(input.prompt ?? "").trim();
-  // Commandes (/clear, /model…) : rien à relire. Le routeur a besoin de cette relecture pour choisir le modèle.
-  const routing = agent === "claude" && config.router.enabled;
+  // Commandes (/clear, /model…) : rien à relire. Le routeur a besoin de cette relecture pour choisir le modèle :
+  // Claude Code passe par le relais projet par projet ; Kimi et Codex, s'ils y passent (réglage global).
+  const settings = loadSettings();
+  const relayed = agent === "claude" || (agent === "kimi" ? settings.router_kimi : settings.router_codex);
+  const routing = config.router.enabled && relayed === true;
   if ((!config.assist.prompt && !routing) || !text || text.startsWith("/")) return;
   const { key } = await getApiKey(project);
   const busy = markBusy({ agent, project, hook: "prompt" }, `${agent}-${session}-prompt`);
   try {
-    let { event, context } = await runPrompt({ agent, project, session, prompt: text, previous: previousAgentMessage(transcript) }, config, { apiKey: key, mock: mockEnabled() });
-    // Routeur : le modèle de ce tour, écrit avant que Claude Code n'envoie sa requête (le relais le lit).
+    const previous = agent === "claude" ? previousAgentMessage(transcript) : intentFor(agent, input).agentNote;
+    let { event, context } = await runPrompt({ agent, project, session, prompt: text, previous }, config, { apiKey: key, mock: mockEnabled() });
+    // Routeur : le modèle de ce tour, écrit avant que l'agent n'envoie sa requête (le relais le lit).
     if (routing && event.prompt) {
-      const route = decideRoute(session, event.prompt.size, config);
-      event = { ...event, route, reason: `${event.reason ?? ""} Routé vers ${route.model}${route.escalated ? ` (monté depuis ${route.previous})` : ""}.`.trim() };
+      const route = decideRoute(routeKey(agent, session), event.prompt.size, config, agent);
+      if (route) event = { ...event, route, reason: `${event.reason ?? ""} Routé vers ${route.model}${route.escalated ? ` (monté depuis ${route.previous})` : ""}.`.trim() };
     }
     await record(event);
-    if (context) addContext("UserPromptSubmit", context);
+    // Contexte pour l'agent : format vérifié avec Claude Code seulement.
+    if (context && agent === "claude") addContext("UserPromptSubmit", context);
   } finally {
     clearBusy(busy);
   }
@@ -300,7 +305,7 @@ async function main(): Promise<void> {
   const [agent, hook, ...flags] = process.argv.slice(2);
   if (agent === "claude" && hook === "statusline") return statusline(await readStdin());
   const input = JSON.parse((await readStdin()) || "{}") as Record<string, unknown>;
-  if ((agent === "claude" || agent === "codex") && hook === "prompt") return prompt(agent, input);
+  if (isAgent(agent) && hook === "prompt") return prompt(agent, input);
   if (agent === "claude" && hook === "precompact") return precompact(input);
   if (agent === "claude" && hook === "read") return read(input);
   if (agent === "kimi" && hook === "read") return kimiRead(input);

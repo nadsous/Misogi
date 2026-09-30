@@ -59,7 +59,7 @@ export function refreshHooks(): number {
         if (!isInstalled(agent, path)) continue;
         const text = readFileSync(configFile(agent, path), "utf8");
         // À jour : bon chemin, et pour Claude les hooks ajoutés depuis (demande, compaction).
-        if (text.includes(script) && (agent === "codex" || text.includes(`${agent} read`))) continue;
+        if (text.includes(script) && text.includes(agent === "codex" ? "codex prompt" : agent === "kimi" ? "kimi prompt" : "claude read")) continue;
         install(agent, path);
         n++;
       } catch {
@@ -129,8 +129,8 @@ export function install(agent: Agent, project: string): InstallResult {
   if (agent === "claude") {
     removeFromJsonFile(legacyClaudeFile(project));
   }
-  if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool, hookCommand("kimi", script, "read")), "utf8");
-  else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent], agent === "claude" ? claudeExtras(script) : undefined));
+  if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool, hookCommand("kimi", script, "read"), hookCommand("kimi", script, "prompt")), "utf8");
+  else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent], agent === "claude" ? claudeExtras(script) : codexExtras(script)));
   if (!isTracked(project)) saveProjectConfig(project, {});
   updateProject(project, (a) => [...new Set([...a, agent])]);
   unhideProject(project);
@@ -259,6 +259,11 @@ type HooksJson = { hooks?: Record<string, HookGroup[]> } & Record<string, unknow
 /** Hooks en plus pour Claude Code : événement → groupe (matcher éventuel, commande, délai). */
 type Extras = Record<string, { matcher?: string; command: string; timeout: number } | { matcher?: string; command: string; timeout: number }[]>;
 
+/** Codex : relire la demande (et choisir le modèle si Codex passe par le relais). */
+function codexExtras(script: string): Extras {
+  return { UserPromptSubmit: { command: hookCommand("codex", script, "prompt"), timeout: PROMPT_TIMEOUT_S } };
+}
+
 function claudeExtras(script: string): Extras {
   return {
     UserPromptSubmit: { command: hookCommand("claude", script, "prompt"), timeout: PROMPT_TIMEOUT_S },
@@ -300,7 +305,7 @@ const KIMI_BEGIN = "# >>> misogi";
 const KIMI_END = "# <<< misogi";
 const EMPTY_HOOKS = /^hooks[ \t]*=[ \t]*\[[ \t]*\][ \t]*(\r?\n|$)/m;
 
-export function addKimiHook(toml: string, command: string, pretool?: string, read?: string): string {
+export function addKimiHook(toml: string, command: string, pretool?: string, read?: string, prompt?: string): string {
   let text = removeKimiHook(toml);
   let note = "";
   if (EMPTY_HOOKS.test(text)) {
@@ -315,6 +320,8 @@ export function addKimiHook(toml: string, command: string, pretool?: string, rea
   if (pretool) lines.push("", "[[hooks]]", 'event = "PreToolUse"', `matcher = "${SHELL_MATCHER.kimi}"`, `command = '${pretool}'`, `timeout = ${PRETOOL_TIMEOUT_S}`);
   // Lecture ciblée : Kimi lit avec ReadFile ; Misogi redirige vers la partie utile des gros fichiers.
   if (read) lines.push("", "[[hooks]]", 'event = "PreToolUse"', 'matcher = "ReadFile"', `command = '${read}'`, `timeout = ${PRETOOL_TIMEOUT_S}`);
+  // Relire la demande (et choisir le modèle si Kimi passe par le relais).
+  if (prompt) lines.push("", "[[hooks]]", 'event = "UserPromptSubmit"', `command = '${prompt}'`, `timeout = ${PROMPT_TIMEOUT_S}`);
   const block = [...lines, KIMI_END].join("\n");
   const out = text.replace(/\s*$/, "") + "\n\n" + block + "\n";
   parseToml(out); // lève une erreur plutôt que d'écrire une config cassée

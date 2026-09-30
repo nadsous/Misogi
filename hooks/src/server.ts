@@ -16,7 +16,8 @@ import { STOP_ADAPTERS } from "./adapters/index.js";
 import { forgetProject, hiddenProjects, hideProject, isTracked, mockEnabled, unhideProject, listProjects, loadProjectConfig, loadSettings, misogiHome, samePath, saveProjectConfig, saveSettings } from "./config.js";
 import { listGuides } from "./guides.js";
 import { checkLoop } from "./loops.js";
-import { loadRouteStats } from "./router.js";
+import { codexModels, loadRouteStats } from "./router.js";
+import { codexRelayOn, KIMI_RELAY_URL, kimiRelayValue, setCodexRelay, setKimiRelay } from "./relay.js";
 import { findProjectIcon } from "./icons.js";
 import { getUsage } from "./usage.js";
 import { askJev } from "./jev.js";
@@ -342,6 +343,16 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       case "GET /api/reliability": {
         const events = projectEvents(q("path"));
         return send(res, 200, reliability(events, loadFeedback()));
+      }
+      case "GET /api/relay":
+        // Kimi et Codex passent-ils par le relais de Misogi ? (réglage de la machine, pas du projet)
+        return send(res, 200, { kimi: kimiRelayValue() === KIMI_RELAY_URL, codex: codexRelayOn(), codexModels: codexModels().slice(0, 12) });
+      case "POST /api/relay": {
+        const { agent, on } = await body<{ agent: "kimi" | "codex"; on: boolean }>(req);
+        if (agent !== "kimi" && agent !== "codex") return send(res, 400, { error: "agent inconnu" });
+        const r = agent === "kimi" ? setKimiRelay(on === true) : setCodexRelay(on === true);
+        if (r.ok) saveSettings(agent === "kimi" ? { router_kimi: on === true } : { router_codex: on === true });
+        return send(res, r.ok ? 200 : 400, r.ok ? r : { error: r.note });
       }
       case "GET /api/threshold-suggestion": {
         const path = resolve(expandHome(q("path")));
