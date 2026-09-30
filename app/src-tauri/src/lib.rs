@@ -84,10 +84,13 @@ fn start_server(app: &AppHandle) -> Option<Child> {
     if server_up() {
         return None; // `misogi serve` tourne déjà
     }
-    let dir = plain_path(app.path().resource_dir().ok()?.join("misogi"));
+    // « sidecar » et pas « misogi » : sous macOS/Linux, le binaire s'appelle déjà misogi.
+    let dir = plain_path(app.path().resource_dir().ok()?.join("sidecar"));
     for node in node_candidates() {
         let mut cmd = Command::new(node);
-        cmd.arg(dir.join("cli.js"))
+        // Le hook est alors copié dans ~/.misogi/bin, qui ne bouge pas quand l'appli se met à jour.
+        cmd.env("MISOGI_BUNDLED", "1")
+            .arg(dir.join("cli.js"))
             .args(["serve", "--port", &PORT.to_string(), "--static"])
             .arg(dir.join("ui"));
         #[cfg(windows)]

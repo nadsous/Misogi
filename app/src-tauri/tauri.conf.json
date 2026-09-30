@@ -41,7 +41,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../hooks/bundle/": "misogi/"
+      "../../hooks/bundle/": "sidecar/"
     },
     "linux": {
       "deb": {

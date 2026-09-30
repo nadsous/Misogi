@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { isAgent } from "./adapters/index.js";
 import { listProjects, loadSettings } from "./config.js";
 import { doctor, formatChecks } from "./doctor.js";
-import { install, preview, stableHookScript, uninstall } from "./install.js";
+import { install, preview, refreshHooks, stableHookScript, uninstall } from "./install.js";
 import { deleteApiKey, setApiKey } from "./keys.js";
 import { purgeOlderThan } from "./log.js";
 import { detectAgents } from "./platform.js";
@@ -130,6 +130,7 @@ Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne 
       return 0;
     }
     case "serve": {
+      keepHooksCurrent();
       const staticDir = flag(args, "--static");
       const listen = flag(args, "--listen");
       const { port } = await startServer({ port: Number(flag(args, "--port")) || DEFAULT_PORT, staticDir: staticDir && resolve(staticDir), listen });
@@ -140,6 +141,7 @@ Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne 
   }
   // `npx misogi` tout court : la fenêtre s'ouvre dans le navigateur, le reste se fait depuis elle.
   if (!cmd) {
+    keepHooksCurrent();
     const { port } = await startServer({ port: DEFAULT_PORT }).catch(async (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") return { port: DEFAULT_PORT }; // déjà lancée : on ouvre juste la fenêtre
       throw err;
@@ -151,6 +153,16 @@ Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne 
   }
   console.log(HELP);
   return cmd !== "help" && cmd !== "--help" ? 1 : 0;
+}
+
+/** Après une mise à jour de l'appli ou du paquet : les hooks installés pointent vers la nouvelle copie. */
+function keepHooksCurrent(): void {
+  try {
+    const n = refreshHooks();
+    if (n) console.log(`Misogi : ${n} config(s) d'agent mise(s) à jour vers le hook actuel`);
+  } catch {
+    // jamais bloquant pour ouvrir la fenêtre
+  }
 }
 
 main().then(

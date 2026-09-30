@@ -8,33 +8,71 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
-import { isTracked, misogiHome, saveProjectConfig, unhideProject, updateProject } from "./config.js";
+import { hiddenProjects, isTracked, listProjects, misogiHome, samePath, saveProjectConfig, unhideProject, updateProject } from "./config.js";
 import { agentHome, portablePath } from "./platform.js";
 import type { Agent } from "./types.js";
 
 export const HOOK_SCRIPT = portablePath(fileURLToPath(new URL("./hook.js", import.meta.url)));
 
 /**
- * Chemin du hook à écrire dans la config des agents. Lancé via `npx misogi`, le paquet vit dans un cache
- * que npm peut vider : on copie alors le hook (un seul fichier) et le module du trousseau dans ~/.misogi/bin.
+ * Chemin du hook à écrire dans la config des agents. Lancé via `npx misogi` (cache que npm peut vider) ou par
+ * l'appli desktop (dossier d'installation qui change d'une version à l'autre), on copie le hook (un seul fichier)
+ * et le module du trousseau dans ~/.misogi/bin : un chemin qui survit aux mises à jour.
  */
 export function stableHookScript(): string {
   const source = fileURLToPath(new URL("./hook.js", import.meta.url));
   const ephemeral = /[\\/]_npx[\\/]/.test(source) || source.toLowerCase().startsWith(tmpdir().toLowerCase());
-  if (!ephemeral) return portablePath(source);
+  if (!ephemeral && process.env.MISOGI_BUNDLED !== "1") return portablePath(source);
   const bin = join(misogiHome(), "bin");
   mkdirSync(bin, { recursive: true });
-  copyFileSync(source, join(bin, "hook.js"));
+  if (existsSync(source)) copyFileSync(source, join(bin, "hook.js")); // absent seulement dans les tests (sources .ts)
   writeFileSync(join(bin, "package.json"), '{ "type": "module" }\n');
   try {
     const scope = dirname(dirname(createRequire(import.meta.url).resolve("@napi-rs/keyring/package.json")));
     for (const d of readdirSync(scope).filter((n) => n === "keyring" || n.startsWith("keyring-"))) {
-      cpSync(join(scope, d), join(bin, "node_modules", "@napi-rs", d), { recursive: true });
+      const dest = join(bin, "node_modules", "@napi-rs", d);
+      // Déjà là : un hook en cours d'exécution peut verrouiller le module natif (Windows).
+      if (!existsSync(dest)) cpSync(join(scope, d), dest, { recursive: true });
     }
   } catch {
     // sans module natif, le hook lit la clé dans TYPESAFE_API_KEY
   }
   return portablePath(join(bin, "hook.js"));
+}
+
+/**
+ * Au démarrage : réécrit les configs d'agents dont le hook pointe ailleurs que vers le chemin stable
+ * (ancienne installation, ancien dossier de l'appli). Rend le nombre de fichiers mis à jour.
+ */
+export function refreshHooks(): number {
+  const script = stableHookScript();
+  if (script === HOOK_SCRIPT) return 0; // lancé depuis les sources : rien à migrer
+  const hidden = hiddenProjects();
+  let n = 0;
+  for (const { path, agents } of listProjects()) {
+    if (!existsSync(path) || hidden.some((h) => samePath(h, path))) continue;
+    for (const agent of agents) {
+      try {
+        if (!isInstalled(agent, path) || readFileSync(configFile(agent, path), "utf8").includes(script)) continue;
+        install(agent, path);
+        n++;
+      } catch {
+        // config illisible : on laisse l'utilisateur la corriger depuis la fenêtre
+      }
+    }
+  }
+  try {
+    const file = claudeGlobalSettings();
+    const json = readJson(file) as HooksJson & { statusLine?: { type?: string; command?: string } };
+    const command = statuslineCommand(script);
+    if (isStatuslineInstalled() && json.statusLine?.command !== command) {
+      writeJson(file, { ...json, statusLine: { ...json.statusLine, command } });
+      n++;
+    }
+  } catch {
+    // statusline laissée telle quelle
+  }
+  return n;
 }
 // Le guillemet est échappé (\") quand on teste le texte brut d'un fichier JSON.
 const OURS = /hook\.js\\?"? (claude|codex|kimi) (stop|pretool)/;

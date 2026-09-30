@@ -20,7 +20,7 @@ import { getUsage } from "./usage.js";
 import { askJev } from "./jev.js";
 import { deleteApiKey, getApiKey, getSecret, setApiKey, setSecret, type SecretName } from "./keys.js";
 import { loadFeedback, reliability, replay, setFeedback, type Verdict } from "./feedback.js";
-import { HOOK_SCRIPT, install, installStatusline, isInstalled, isStatuslineInstalled, preview, uninstall, uninstallStatusline } from "./install.js";
+import { install, installStatusline, isInstalled, isStatuslineInstalled, preview, stableHookScript, uninstall, uninstallStatusline } from "./install.js";
 import { appendEvent, logPath, purgeOlderThan } from "./log.js";
 import { answerPending, heartbeat, listBusy, listPending, remoteToken, setOverride, type OverrideAction } from "./runtime.js";
 import { detectAgents, projectRoot, which, wslLogFiles } from "./platform.js";
@@ -372,7 +372,7 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       }
       case "GET /api/install/preview": {
         const agent = q("agent") as Agent;
-        return send(res, 200, { ...preview(agent, q("path")), script: HOOK_SCRIPT, source: readFileSync(fileURLToPath(new URL("./hook.js", import.meta.url)), "utf8") });
+        return send(res, 200, { ...preview(agent, q("path")), script: stableHookScript(), source: readFileSync(fileURLToPath(new URL("./hook.js", import.meta.url)), "utf8") });
       }
       case "POST /api/install": {
         const { agent, path } = await body<{ agent: Agent; path: string }>(req);

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listProjects } from "../src/config.js";
-import { addKimiHook, hookCommand, install, installStatusline, isInstalled, isStatuslineInstalled, previousStatusline, removeKimiHook, uninstall, uninstallStatusline } from "../src/install.js";
+import { addKimiHook, hookCommand, install, installStatusline, refreshHooks, isInstalled, isStatuslineInstalled, previousStatusline, removeKimiHook, uninstall, uninstallStatusline } from "../src/install.js";
 
 let project: string;
 
@@ -12,11 +12,33 @@ beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), "misogi-proj-"));
   process.env.MISOGI_HOME = mkdtempSync(join(tmpdir(), "misogi-home-"));
   process.env.KIMI_HOME = mkdtempSync(join(tmpdir(), "kimi-home-"));
+  // Jamais la vraie config Claude (~/.claude/settings.json) : la statusline y est globale.
+  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "claude-home-"));
 });
 
 afterEach(() => {
   delete process.env.MISOGI_HOME;
   delete process.env.KIMI_HOME;
+  delete process.env.CLAUDE_CONFIG_DIR;
+});
+
+describe("hooks après une mise à jour de l'appli", () => {
+  it("réécrit les configs qui pointent vers l'ancien dossier d'installation", () => {
+    const settings = join(project, ".claude", "settings.local.json");
+    install("claude", project);
+    const old = readFileSync(settings, "utf8").replaceAll(hookCommand("claude").split('"')[1]!, "C:/Program Files/Misogi/misogi/hook.js");
+    writeFileSync(settings, old);
+    process.env.MISOGI_BUNDLED = "1";
+    try {
+      expect(refreshHooks()).toBe(1);
+      const cmd = JSON.parse(readFileSync(settings, "utf8")).hooks.Stop[0].hooks[0].command as string;
+      expect(cmd).toContain(join(process.env.MISOGI_HOME!, "bin").replaceAll("\\", "/"));
+      expect(cmd).not.toContain("Program Files");
+      expect(refreshHooks()).toBe(0); // déjà à jour
+    } finally {
+      delete process.env.MISOGI_BUNDLED;
+    }
+  });
 });
 
 describe("installation Claude / Codex", () => {
