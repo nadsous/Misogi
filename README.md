@@ -221,6 +221,7 @@ Adding an agent is one adapter in `hooks/src/adapters/` (hook input → `StopCon
 - [x] Threshold replay on past decisions, "Jev was right / wrong" labels, measured reliability
 - [x] Ticket acceptance criteria (GitHub, GitLab, Linear) judged by Jev
 - [x] `npx misogi`, signed auto-updates
+- [x] Claude Code subagents: their edits and checks count in the turn
 - [ ] Signed macOS / Windows builds (see [docs/signing.md](docs/signing.md))
 - [ ] Optional Supabase sync across machines
 

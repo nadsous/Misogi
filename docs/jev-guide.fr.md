@@ -4,7 +4,7 @@ Ce guide explique comment brancher Jev sur un projet avec Misogi, et comment le 
 
 ## Comment Misogi juge un « c'est fini »
 
-Misogi s'inspire de ce qui a été mesuré sur de vrais arrêts d'agents (jev-belay : AUROC 0,976 avec les faits, 0,777 en jugeant la phrase seule). Les **faits** passent avant les mots :
+Misogi s'inspire de ce qui a été mesuré sur de vrais arrêts d'agents (jev-belay : AUROC 0,976 avec les faits, 0,777 en jugeant la phrase seule). Les **faits** passent avant les mots (avec Claude Code, les modifications et vérifications des sous-agents comptent aussi) :
 
 1. **Rien n'a été modifié** pendant le tour (une question, une explication) → rien à vérifier, Jev n'est pas appelé.
 2. **Un test, un build, un lint ou un typecheck a réussi après la dernière modification** → c'est prouvé, Jev n'est pas appelé.

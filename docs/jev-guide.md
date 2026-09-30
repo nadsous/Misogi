@@ -4,7 +4,7 @@ How to plug Jev into a project with Misogi, and tune it so it saves you time ins
 
 ## How Misogi judges a "done"
 
-Misogi follows what was measured on real agent stops (jev-belay: AUROC 0.976 with the facts, 0.777 judging the sentence alone). **Facts** come before words:
+Misogi follows what was measured on real agent stops (jev-belay: AUROC 0.976 with the facts, 0.777 judging the sentence alone). **Facts** come before words (for Claude Code, edits and checks made by subagents count too):
 
 1. **Nothing changed** during the turn (a question, an explanation) → nothing to verify, Jev is not called.
 2. **A test, build, lint or type check passed after the last edit** → proven, Jev is not called.
