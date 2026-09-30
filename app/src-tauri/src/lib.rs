@@ -105,6 +105,36 @@ fn start_server(app: &AppHandle) -> Option<Child> {
     None
 }
 
+fn server_url() -> tauri::Url {
+    format!("http://127.0.0.1:{PORT}").parse().unwrap()
+}
+
+/// Chien de garde : relance le serveur s'il s'est arrêté (veille, plantage), et si la fenêtre a dû s'ouvrir
+/// sur la page de secours (serveur trop lent au démarrage de la session), la bascule dessus dès qu'il répond.
+fn watchdog(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(3));
+        if !server_up() {
+            let state = app.state::<Sidecar>();
+            let Ok(mut child) = state.0.lock() else { continue };
+            // Un Node lancé il y a peu et encore vivant est peut-être juste lent : on lui laisse le temps.
+            let alive = child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+            if !alive {
+                *child = start_server(&app);
+            }
+            continue;
+        }
+        if std::env::var("MISOGI_DEV_URL").is_ok() {
+            continue;
+        }
+        if let Some(w) = app.get_webview_window("main") {
+            if w.url().is_ok_and(|u| u.scheme() != "http") {
+                let _ = w.navigate(server_url());
+            }
+        }
+    });
+}
+
 fn toggle(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         if w.is_visible().unwrap_or(false) {
@@ -123,7 +153,7 @@ fn create_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     // Sans serveur (Node absent), l'interface embarquée s'ouvre et affiche comment le lancer.
     let url = match std::env::var("MISOGI_DEV_URL") {
         Ok(dev) => WebviewUrl::External(dev.parse().expect("MISOGI_DEV_URL invalide")),
-        Err(_) if server_up() => WebviewUrl::External(format!("http://127.0.0.1:{PORT}").parse().unwrap()),
+        Err(_) if server_up() => WebviewUrl::External(server_url()),
         Err(_) => WebviewUrl::App("index.html".into()),
     };
 
@@ -262,6 +292,7 @@ pub fn run() {
             setup_tray(&handle)?;
             let _ = handle.global_shortcut().register(toggle_shortcut);
             enable_autostart_once(&handle);
+            watchdog(handle.clone());
             let updates = handle.clone();
             tauri::async_runtime::spawn(async move { check_update(updates, false).await });
             Ok(())

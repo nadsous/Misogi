@@ -221,19 +221,61 @@ export function useStream(onDecision: (e: MisogiEvent) => void) {
   cb.current = onDecision;
 
   useEffect(() => {
-    const es = new EventSource("/api/stream");
-    es.addEventListener("backlog", (m) => setEvents(JSON.parse((m as MessageEvent).data)));
-    es.addEventListener("sessions", (m) => setSessions(JSON.parse((m as MessageEvent).data)));
-    es.addEventListener("pending", (m) => setPending(JSON.parse((m as MessageEvent).data)));
-    es.addEventListener("busy", (m) => setBusy(JSON.parse((m as MessageEvent).data)));
-    es.addEventListener("decision", (m) => {
-      const e = JSON.parse((m as MessageEvent).data) as MisogiEvent;
-      setEvents((prev) => [...prev.slice(-999), e]);
-      cb.current(e);
-    });
-    es.onopen = () => setOnline(true);
-    es.onerror = () => setOnline(false);
-    return () => es.close();
+    // EventSource se reconnecte seul… sauf quand il abandonne (serveur arrêté puis relancé) ou qu'une veille
+    // laisse une connexion morte sans erreur. On le recrée donc nous-mêmes, surveillé par le ping du serveur.
+    let es: EventSource | undefined;
+    let lastSeen = Date.now();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
+    const seen = () => {
+      lastSeen = Date.now();
+      delay = 1000;
+      setOnline(true);
+    };
+    const connect = () => {
+      es?.close();
+      lastSeen = Date.now();
+      const s = new EventSource("/api/stream");
+      es = s;
+      s.onopen = seen;
+      s.addEventListener("ping", seen);
+      s.addEventListener("backlog", (m) => {
+        seen();
+        setEvents(JSON.parse((m as MessageEvent).data));
+      });
+      s.addEventListener("sessions", (m) => setSessions(JSON.parse((m as MessageEvent).data)));
+      s.addEventListener("pending", (m) => setPending(JSON.parse((m as MessageEvent).data)));
+      s.addEventListener("busy", (m) => setBusy(JSON.parse((m as MessageEvent).data)));
+      s.addEventListener("decision", (m) => {
+        const e = JSON.parse((m as MessageEvent).data) as MisogiEvent;
+        setEvents((prev) => [...prev.slice(-999), e]);
+        cb.current(e);
+      });
+      s.onerror = () => {
+        setOnline(false);
+        if (s.readyState === EventSource.CLOSED && !retry) {
+          retry = setTimeout(() => {
+            retry = undefined;
+            connect();
+          }, delay);
+          delay = Math.min(delay * 2, 15_000);
+        }
+      };
+    };
+    connect();
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastSeen > 40_000) connect();
+    }, 10_000);
+    const onWake = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastSeen > 20_000) connect();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      clearInterval(watchdog);
+      clearTimeout(retry);
+      document.removeEventListener("visibilitychange", onWake);
+      es?.close();
+    };
   }, []);
 
   return { events, sessions, online, pending, busy };

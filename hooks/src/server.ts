@@ -256,7 +256,8 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
         res.write(`event: sessions\ndata: ${JSON.stringify(sessions)}\n\n`);
         res.write(`event: busy\ndata: ${JSON.stringify(listBusy())}\n\n`);
         clients.add(res);
-        const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+        // Événement nommé (pas un commentaire) : la fenêtre s'en sert pour repérer une connexion morte après une veille.
+        const ping = setInterval(() => res.write("event: ping\ndata: {}\n\n"), 15_000);
         req.on("close", () => {
           clearInterval(ping);
           clients.delete(res);
