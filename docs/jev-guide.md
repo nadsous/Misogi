@@ -21,7 +21,15 @@ Indicative price: $0.042 per million input tokens, nothing for output. A Misogi 
 
 ## 2. Plug a project in
 
-In the window: **+** (left column) → pick the folder → paste the key → **Test**. Tick "Use this key for all my projects" to reuse it everywhere.
+Misogi only watches connected projects. In the window:
+
+- **An agent is working in a project that isn't connected**: a banner at the top of the window says so, click **Connect**.
+- **Projects & keys → Recent projects without Misogi**: every folder where an agent worked in the last 30 days, with a **Connect** button.
+- **Any other folder**: **+** (left column) → pick the folder.
+
+The Jev key you already use for another project is reused. Otherwise, paste it in the project card and click **Test**.
+
+Tick "Use this key for all my projects" to reuse it everywhere.
 
 From the terminal, inside the project:
 

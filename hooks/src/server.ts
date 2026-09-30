@@ -24,7 +24,7 @@ import { install, installStatusline, isInstalled, isStatuslineInstalled, preview
 import { appendEvent, logPath, purgeOlderThan } from "./log.js";
 import { answerPending, heartbeat, listBusy, listPending, remoteToken, setOverride, type OverrideAction } from "./runtime.js";
 import { detectAgents, projectRoot, which, wslLogFiles } from "./platform.js";
-import { listSessions, type SessionStatus } from "./sessions.js";
+import { listSessions, recentProjects, type RecentProject, type SessionStatus } from "./sessions.js";
 import { buildStopState } from "./stop.js";
 import type { Agent, GlobalSettings, MisogiEvent, ProjectConfig } from "./types.js";
 
@@ -235,6 +235,8 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
   }
 
   /** Projets connus : registre des installations, journal et sessions récentes. */
+  let suggested: { at: number; list: RecentProject[] } | null = null;
+
   function knownProjects(): Map<string, Agent[]> {
     const known = new Map<string, Agent[]>();
     for (const p of listProjects()) known.set(p.path, p.agents);
@@ -270,6 +272,18 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
         return send(res, 200, sessions);
       case "GET /api/projects":
         return send(res, 200, await Promise.all([...knownProjects()].map(([p, a]) => projectView(p, a))));
+      case "GET /api/projects/suggested": {
+        // Projets où un agent a travaillé ces 30 derniers jours sans que Misogi y soit connecté.
+        if (!suggested || Date.now() - suggested.at > 60_000) suggested = { at: Date.now(), list: recentProjects() };
+        const hidden = hiddenProjects();
+        const connected = (p: string) => (["claude", "codex", "kimi"] as Agent[]).some((a) => isInstalled(a, p));
+        const list = suggested.list
+          // Pas les dossiers cachés (~/.blume/…, ~/.cache/…) : ce sont des outils, pas des projets.
+          .filter((r) => !/[\\/]\.[^\\/]/.test(r.project) && keepProject(r.project) && !hidden.some((h) => samePath(h, r.project)) && !connected(r.project))
+          .slice(0, 20)
+          .map((r) => ({ path: r.project, name: r.project.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r.project, agents: r.agents, updatedAt: r.updatedAt }));
+        return send(res, 200, list);
+      }
       case "POST /api/projects/add": {
         const { path } = await body<{ path: string }>(req);
         const dir = resolve(expandHome(path.trim()));
@@ -279,6 +293,16 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
         for (const a of agents) install(a, dir);
         if (!agents.length) saveProjectConfig(dir, {});
         unhideProject(dir);
+        // Connexion en un clic : sans clé pour ce projet, on reprend celle d'un autre projet (même trousseau).
+        if ((await getApiKey(dir)).source === "none") {
+          for (const p of listProjects()) {
+            const { key, source } = await getApiKey(p.path);
+            if (key && source === "keychain") {
+              await setApiKey(dir, key).catch(() => {});
+              break;
+            }
+          }
+        }
         return send(res, 200, await projectView(dir, agents));
       }
       case "GET /api/feedback":

@@ -109,6 +109,9 @@ One install, one window: session status, plan quotas, what guides your agent, "i
 **"Why don't I see my Claude plan percentages?"**
 Claude Code only shares its 5-hour and 7-day limits with its *status line*, which exists in the terminal (`claude`). Apps built on the Claude Agent SDK, like T3 Code, never run a status line, so the percentages only appear once you have used `claude` in a terminal after clicking *Show my Claude quotas*. Tokens burned are always shown, whatever the app. Codex limits are read from its session files and always work.
 
+**"I coded on a project and Jev did nothing."**
+Misogi probably wasn't connected to that project: it only watches the ones you enabled. Click **Connect** in the banner or in **Projects & keys** (see [Connect Misogi to a project](#connect-misogi-to-a-project)). If the project is already connected, run `npx misogi doctor` in its folder.
+
 **"What does it cost?"**
 Misogi is free and open source. Jev costs about $0.0001 per check. Nothing is sent without a key.
 
@@ -159,13 +162,37 @@ npm run build
 npm run serve            # open http://127.0.0.1:4317
 ```
 
-Then, from the window, click **+** to add a project folder, paste your [TypeSafe key](https://console.typesafe.ai), and you are done. Or from the terminal, inside the project:
+### Connect Misogi to a project
+
+Misogi only watches the projects you connect it to. In a project that isn't connected, your agent works as usual, but Jev sees nothing and no decision shows up.
+
+**The easy way: from the window**
+
+1. **When an agent works in a project without Misogi**, a banner appears at the top of the window: *"Claude is working in my-project without Misogi"*. Click **Connect**.
+2. **For your other projects**, open **Projects & keys**. The *Recent projects without Misogi* section lists the folders where Claude, Codex or Kimi worked in the last 30 days. Click **Connect** next to the one you want.
+3. **For a project no agent has opened yet**, use *Add a project* at the bottom of **Projects & keys** (**Browse** button in the app).
+
+Connecting a project:
+- installs the hooks for every agent found on your machine;
+- puts them in **Observer** mode: Misogi records what Jev thinks but never blocks anything;
+- reuses your Jev key if you already set it for another project. Otherwise, paste it once in the project card ([TypeSafe console](https://console.typesafe.ai)).
+
+**From the terminal, inside the project folder**
 
 ```sh
-node /path/to/misogi/hooks/dist/cli.js install     # every agent found on your PATH
-node /path/to/misogi/hooks/dist/cli.js key set     # key stored in the OS keychain
-node /path/to/misogi/hooks/dist/cli.js doctor      # checks key, hooks and log in one go
+npx misogi install       # hooks for every agent found (or: install claude)
+npx misogi key set       # Jev key, stored in the OS keychain
+npx misogi doctor        # checks everything at once: tracked project, hooks, key, log
 ```
+
+**What it changes in your project**
+- `.claude/settings.local.json` (Claude Code) or `.codex/hooks.json` (Codex) gets the hook. The original file is backed up next to it (`.misogi-backup`).
+- For Kimi, the hook goes in `~/.kimi/config.toml` and only reacts to connected projects.
+- `.misogi/config.json` keeps the project settings (mode, threshold, shell guard). Commit it to share the settings with your team, or add `.misogi/` to your `.gitignore`.
+
+**Check it works.** Finish a turn with your agent in that project: a decision appears in the feed. If it was just a question with no file changes, Misogi shows it without calling Jev, since there was nothing to verify.
+
+**Disconnect it.** In **Projects & keys**, open the project and click **Remove from Misogi**: the hooks are removed and your config files restored.
 
 No key yet? `MISOGI_MOCK=1` gives simulated answers so you can try everything.
 

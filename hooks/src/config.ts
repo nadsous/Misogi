@@ -89,14 +89,24 @@ export function mockEnabled(): boolean {
 export function loadSettings(): GlobalSettings {
   try {
     const raw = JSON.parse(readFileSync(join(misogiHome(), "settings.json"), "utf8")) as Partial<GlobalSettings>;
-    return { retention_days: Math.round(num(raw.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days)) };
+    return { retention_days: Math.round(num(raw.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days)), ui: cleanUi(raw.ui) };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, ui: {} };
   }
 }
 
+/** Préférences de la fenêtre : de courtes chaînes sous des clés simples, rien d'autre. */
+function cleanUi(ui: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!ui || typeof ui !== "object") return out;
+  for (const [k, v] of Object.entries(ui).slice(0, 30)) if (/^[\w.-]{1,40}$/.test(k) && typeof v === "string" && v.length <= 80) out[k] = v;
+  return out;
+}
+
 export function saveSettings(patch: Partial<GlobalSettings>): GlobalSettings {
-  const next = { ...loadSettings(), ...patch };
+  const current = loadSettings();
+  // Les préférences se complètent : la fenêtre n'envoie que celle qui vient de changer.
+  const next = { ...current, ...patch, ui: cleanUi({ ...current.ui, ...(patch.ui ?? {}) }) };
   next.retention_days = Math.round(num(next.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days));
   mkdirSync(misogiHome(), { recursive: true });
   writeFileSync(join(misogiHome(), "settings.json"), JSON.stringify(next, null, 2) + "\n", "utf8");

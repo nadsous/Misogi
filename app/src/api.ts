@@ -96,6 +96,7 @@ export interface Pending {
 
 export interface GlobalSettings {
   retention_days: number;
+  ui?: Record<string, string>;
 }
 
 export interface SessionStatus {
@@ -120,6 +121,14 @@ export interface ProjectConfig {
   max_state_tokens: number;
   guard: { enabled: boolean; mode: "shadow" | "active"; threshold: number };
   tickets: boolean;
+}
+
+/** Projet où un agent a travaillé récemment, sans Misogi. */
+export interface Suggested {
+  path: string;
+  name: string;
+  agents: Agent[];
+  updatedAt: number;
 }
 
 export interface Project {
@@ -201,6 +210,7 @@ export const api = {
   deleteKey: (path: string) => call<{ ok: true }>("POST", "/api/key/delete", { path }),
   testKey: (path: string, key?: string) => call<{ ok: boolean; ms?: number; model?: string; error?: string }>("POST", "/api/key/test", { path, key }),
   addProject: (path: string) => call<Project>("POST", "/api/projects/add", { path }),
+  suggested: () => call<Suggested[]>("GET", "/api/projects/suggested"),
   install: (agent: Agent, path: string) => call("POST", "/api/install", { agent, path }),
   uninstall: (agent: Agent, path: string) => call("POST", "/api/uninstall", { agent, path }),
   uninstallAll: () => call("POST", "/api/uninstall-all", {}),

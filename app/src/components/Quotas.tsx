@@ -2,6 +2,7 @@ import { useContext, useEffect, useState } from "react";
 import { AGENT_LABEL, api, type Agent, type AgentUsage, type QuotaWindow, type Usage } from "../api";
 import { LangContext, useT } from "../i18n";
 import { AgentIcon, JevIcon } from "./Brand";
+import { savePref } from "../prefs";
 import { Tip } from "./ui";
 
 const POLL_MS = 30_000;
@@ -18,7 +19,12 @@ export function Quotas() {
     const id = setInterval(load, POLL_MS);
     return () => clearInterval(id);
   }, []);
-  useEffect(() => localStorage.setItem("misogi.quotas", open ? "open" : "closed"), [open]);
+  useEffect(() => savePref("misogi.quotas", open ? "open" : "closed"), [open]);
+  useEffect(() => {
+    const onPrefs = () => setOpen(localStorage.getItem("misogi.quotas") !== "closed");
+    addEventListener("misogi:prefs", onPrefs);
+    return () => removeEventListener("misogi:prefs", onPrefs);
+  }, []);
 
   if (!usage) return null;
   const rows = (["claude", "codex", "kimi"] as Agent[]).filter((a) => usage[a] && (usage[a]!.windows.length || usage[a]!.tokens24h || (a === "claude" && !usage.statusline)));

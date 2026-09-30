@@ -102,6 +102,9 @@ Une installation, une fenêtre : statut des sessions, quotas du forfait, ce qui 
 **« Pourquoi je ne vois pas mes pourcentages de forfait Claude ? »**
 Claude Code ne donne ses limites 5 h et 7 jours qu'à sa *statusline*, qui n'existe que dans le terminal (`claude`). Les applis construites sur le SDK de Claude, comme T3 Code, ne lancent jamais de statusline : les pourcentages n'apparaissent qu'après avoir utilisé `claude` dans un terminal, une fois « Voir mes quotas Claude » activé. Les tokens consommés, eux, s'affichent toujours, quelle que soit l'appli. Les limites de Codex sont lues dans ses fichiers de session et marchent toujours.
 
+**« J'ai codé sur un projet et Jev n'a rien fait. »**
+Misogi n'était sans doute pas connecté à ce projet : il ne surveille que ceux où tu l'as activé. Clique sur **Connecter** dans le bandeau ou dans **Projets et clés** (voir [Connecter Misogi à un projet](#connecter-misogi-à-un-projet)). Si le projet est déjà connecté, lance `npx misogi doctor` dans son dossier.
+
 **« Combien ça coûte ? »**
 Misogi est gratuit et open source. Jev coûte environ 0,0001 $ par vérification. Rien n'est envoyé sans clé.
 
@@ -135,7 +138,39 @@ npm run build
 npm run serve            # ouvre http://127.0.0.1:4317
 ```
 
-Dans la fenêtre, clique sur **+** pour ajouter le dossier d'un projet, colle ta [clé TypeSafe](https://console.typesafe.ai), c'est tout. Pas encore de clé ? `MISOGI_MOCK=1` donne des réponses simulées.
+### Connecter Misogi à un projet
+
+Misogi ne surveille que les projets où tu l'as connecté. Tant qu'un projet n'est pas connecté, ton agent y travaille normalement, mais Jev ne voit rien : aucune décision n'apparaît.
+
+**Le plus simple : depuis la fenêtre**
+
+1. **Quand un agent travaille dans un projet sans Misogi**, un bandeau apparaît en haut de la fenêtre : *« Claude travaille dans mon-projet sans Misogi »*. Clique sur **Connecter**.
+2. **Pour tes autres projets**, ouvre **Projets et clés**. La section *Projets récents sans Misogi* liste les dossiers où Claude, Codex ou Kimi ont travaillé ces 30 derniers jours. Clique sur **Connecter** à côté de celui que tu veux.
+3. **Pour un projet jamais ouvert avec un agent**, utilise *Ajouter un projet* en bas de **Projets et clés** (bouton **Parcourir** dans l'appli).
+
+Connecter un projet :
+- installe les hooks de chaque agent trouvé sur ta machine ;
+- les met en mode **Observer** : Misogi note l'avis de Jev mais ne bloque jamais rien ;
+- reprend ta clé Jev si tu l'as déjà mise pour un autre projet. Sinon, colle-la une fois dans la fiche du projet ([console TypeSafe](https://console.typesafe.ai)).
+
+**Depuis le terminal, dans le dossier du projet**
+
+```sh
+npx misogi install       # hooks pour chaque agent trouvé (ou : install claude)
+npx misogi key set       # clé Jev, rangée dans le trousseau du système
+npx misogi doctor        # vérifie en une fois : projet suivi, hooks, clé, journal
+```
+
+**Ce que ça change dans ton projet**
+- `.claude/settings.local.json` (Claude Code) ou `.codex/hooks.json` (Codex) reçoivent le hook. Le fichier d'origine est sauvegardé à côté (`.misogi-backup`).
+- Pour Kimi, le hook va dans `~/.kimi/config.toml`, et ne réagit qu'aux projets connectés.
+- `.misogi/config.json` garde les réglages du projet (mode, seuil, garde-fou). Commite-le pour partager les réglages avec ton équipe, ou ajoute `.misogi/` à ton `.gitignore`.
+
+**Le vérifier.** Termine un tour avec ton agent dans ce projet : une décision apparaît dans le fil. Si c'était une simple question sans modification de fichier, Misogi l'affiche sans appeler Jev : il n'y avait rien à vérifier.
+
+**Le déconnecter.** Dans **Projets et clés**, ouvre le projet puis clique sur **Retirer de Misogi** : les hooks sont enlevés et tes fichiers de config remis comme avant.
+
+Pas encore de clé ? `MISOGI_MOCK=1` donne des réponses simulées.
 
 📘 **[Bien utiliser Jev dans tes projets](docs/jev-guide.fr.md)** : clé, semaine d'observation, version épinglée, tests, garde-fou shell, CI, sessions à distance.
 

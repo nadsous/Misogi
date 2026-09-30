@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AGENT_LABEL, AGENTS, api, type Agent, type GlobalSettings, type Integrations, type Project, type ProjectConfig, type Reliability, type Replay } from "../api";
 import { useT, type Lang } from "../i18n";
 import { inTauri } from "../platform";
+import { savePref } from "../prefs";
 import { THEMES, themeVars, type ThemeName } from "../themes";
 import { Logo } from "./Brand";
 import { Code } from "./Detail";
@@ -167,7 +168,7 @@ function GlobalSettingsPanel() {
             aria-label={t("autoCollapse")}
             defaultChecked={localStorage.getItem("misogi.autocollapse") === "on"}
             onChange={(e) => {
-              localStorage.setItem("misogi.autocollapse", e.target.checked ? "on" : "off");
+              savePref("misogi.autocollapse", e.target.checked ? "on" : "off");
               dispatchEvent(new Event("misogi:autocollapse"));
             }}
             className="size-4 accent-(--accent)"

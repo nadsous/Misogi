@@ -127,4 +127,6 @@ export interface ProjectConfig {
 export interface GlobalSettings {
   /** Les décisions plus anciennes sont purgées ; 0 = garder pour toujours. */
   retention_days: number;
+  /** Préférences de la fenêtre (thème, langue, logo…) : gardées ici, elles survivent aux mises à jour de l'appli. */
+  ui?: Record<string, string>;
 }

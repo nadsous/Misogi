@@ -184,3 +184,55 @@ function codexSessions(maxAgeMs: number, now: number): SessionStatus[] {
     };
   });
 }
+
+// --- Projets récents, pour proposer de connecter Misogi là où un agent travaille déjà.
+
+export interface RecentProject {
+  project: string;
+  agents: Agent[];
+  updatedAt: number;
+}
+
+/** Dossiers où Claude, Codex ou Kimi ont travaillé récemment : léger, un seul fichier lu par projet. */
+export function recentProjects(maxAgeMs = 30 * 86400_000, now = Date.now()): RecentProject[] {
+  const found = new Map<string, RecentProject>();
+  const add = (cwd: string, agent: Agent, updatedAt: number) => {
+    if (!cwd) return;
+    const project = projectRoot(cwd);
+    const key = project.replace(/\\/g, "/").toLowerCase();
+    const cur = found.get(key) ?? { project, agents: [], updatedAt: 0 };
+    if (!cur.agents.includes(agent)) cur.agents.push(agent);
+    cur.updatedAt = Math.max(cur.updatedAt, updatedAt);
+    found.set(key, cur);
+  };
+
+  const claudeRoot = join(agentHome("claude"), "projects");
+  for (const d of ls(claudeRoot)) {
+    const newest = recentFiles(ls(join(claudeRoot, d)).filter((f) => f.endsWith(".jsonl")).map((f) => join(claudeRoot, d, f)), maxAgeMs, now).sort((a, b) => b.mtime - a.mtime)[0];
+    if (!newest) continue;
+    const cwd = [...parseJsonl<ClaudeLine>(readTail(newest.file, 64 * 1024))].reverse().find((l) => l.cwd)?.cwd;
+    if (cwd) add(cwd, "claude", newest.mtime);
+  }
+
+  const kimiRoot = join(agentHome("kimi"), "sessions");
+  for (const [hash, path] of kimiProjects()) {
+    const wires = ls(join(kimiRoot, hash)).map((s) => join(kimiRoot, hash, s, "wire.jsonl")).filter(existsSync);
+    const newest = recentFiles(wires, maxAgeMs, now).sort((a, b) => b.mtime - a.mtime)[0];
+    if (newest) add(path, "kimi", newest.mtime);
+  }
+
+  const codexRoot = join(agentHome("codex"), "sessions");
+  for (let d = 0; d * 86400_000 <= maxAgeMs; d++) {
+    const day = new Date(now - d * 86400_000);
+    const dir = join(codexRoot, String(day.getFullYear()), String(day.getMonth() + 1).padStart(2, "0"), String(day.getDate()).padStart(2, "0"));
+    for (const { file, mtime } of recentFiles(ls(dir).filter((f) => f.endsWith(".jsonl")).map((f) => join(dir, f)), maxAgeMs, now)) {
+      try {
+        const meta = parseJsonl<RolloutLine>(readHead(file, 64 * 1024).split("\n")[0] ?? "")[0]?.payload ?? {};
+        add(str(meta.cwd), "codex", mtime);
+      } catch {
+        // fichier illisible
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}

@@ -21,7 +21,13 @@ Prix indicatif : 0,042 $ par million de tokens d'entrée, rien pour la sortie. U
 
 ## 2. Brancher un projet
 
-Dans la fenêtre : **+** (colonne de gauche) → choisis le dossier → colle la clé → **Tester**. Coche « Utiliser cette clé pour tous mes projets » si tu veux la même partout.
+Misogi ne surveille que les projets connectés. Dans la fenêtre :
+
+- **Un agent travaille dans un projet non connecté** : un bandeau le signale en haut de la fenêtre, clique sur **Connecter**.
+- **Projets et clés → Projets récents sans Misogi** : tous les dossiers où un agent a travaillé ces 30 derniers jours, avec un bouton **Connecter**.
+- **Un autre dossier** : **+** (colonne de gauche) → choisis le dossier.
+
+La clé Jev déjà utilisée pour un autre projet est reprise. Sinon, colle-la dans la fiche du projet puis clique sur **Tester**. Coche « Utiliser cette clé pour tous mes projets » si tu veux la même partout.
 
 En ligne de commande, dans le dossier du projet :
 

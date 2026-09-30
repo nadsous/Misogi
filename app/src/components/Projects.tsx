@@ -3,6 +3,7 @@ import { AGENTS, api, type Agent, type Project } from "../api";
 import { useT } from "../i18n";
 import { inTauri, pickFolder } from "../platform";
 import { AgentIcon, JevIcon } from "./Brand";
+import { ConnectButton, SuggestedProjects } from "./Connect";
 import { Button, ProjectIcon } from "./ui";
 
 interface Props {
@@ -43,25 +44,33 @@ export function Projects({ projects, agentsFound, onChanged, onOpenSettings, onO
         <span className="ml-auto text-xs font-medium">{t("projects")}</span>
       </header>
       <div className="flex-1 overflow-y-auto">
+        <SuggestedProjects projects={projects} onChanged={onChanged} />
         <p className="px-3 pt-3 pb-2 text-2xs leading-relaxed text-faint">{t("projects.lead")}</p>
         {!projects.length && <p className="px-3 py-4 text-xs text-faint">{t("noProjects")}</p>}
         <ul className="divide-y divide-line border-y border-line">
           {projects.map((p) => (
             <li key={p.path}>
-              <button onClick={() => setOpen(open === p.path ? null : p.path)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface">
-                <ProjectIcon path={p.path} size={32} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-medium">{p.name}</span>
-                  <span className="block truncate font-mono text-2xs text-faint">{p.path}</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  {AGENTS.filter((a) => agentsFound[a] || p.installed[a]).map((a) => (
-                    <AgentIcon key={a} agent={a} size={18} dim={!p.installed[a]} />
-                  ))}
-                  <span className="mx-0.5 h-3 w-px bg-line" />
-                  <JevIcon size={18} dim={p.key === "none"} />
-                </span>
-              </button>
+              <div className="flex items-center gap-2 pr-3 hover:bg-surface">
+                <button onClick={() => setOpen(open === p.path ? null : p.path)} className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-3 text-left">
+                  <ProjectIcon path={p.path} size={32} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-medium">{p.name}</span>
+                    {Object.values(p.installed).some(Boolean) ? (
+                      <span className="block truncate font-mono text-2xs text-faint">{p.path}</span>
+                    ) : (
+                      <span className="block truncate text-2xs text-warn">{t("notConnected")}</span>
+                    )}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    {AGENTS.filter((a) => agentsFound[a] || p.installed[a]).map((a) => (
+                      <AgentIcon key={a} agent={a} size={18} dim={!p.installed[a]} />
+                    ))}
+                    <span className="mx-0.5 h-3 w-px bg-line" />
+                    <JevIcon size={18} dim={p.key === "none"} />
+                  </span>
+                </button>
+                {!Object.values(p.installed).some(Boolean) && <ConnectButton path={p.path} onDone={onChanged} />}
+              </div>
               {open === p.path && <ProjectKey project={p} agentsFound={agentsFound} onChanged={onChanged} onOpenSettings={() => onOpenSettings(p.path)} onOpenGuides={() => onOpenGuides(p.path, p.name)} />}
             </li>
           ))}

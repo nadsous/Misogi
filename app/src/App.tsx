@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { eventKey, Feed } from "./components/Feed";
 import { Guides } from "./components/Guides";
 import { PendingBanner } from "./components/PendingBanner";
+import { UnconnectedBanner } from "./components/Connect";
 import { Quotas } from "./components/Quotas";
 import { Logo, JevIcon } from "./components/Brand";
 import { Palette, type Command } from "./components/Palette";
@@ -15,6 +16,7 @@ import { Settings, type Theme } from "./components/Settings";
 import { Strip } from "./components/Strip";
 import { Kbd } from "./components/ui";
 import { headline, plainText } from "./format";
+import { savePref, syncPrefs } from "./prefs";
 import { DICTS, defaultLang, LangContext, type Lang } from "./i18n";
 import { inTauri, notify, setCollapsed } from "./platform";
 import { THEMES, THEME_BY_NAME, themeVars, type ThemeName } from "./themes";
@@ -89,9 +91,20 @@ export function App() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  useEffect(() => localStorage.setItem("misogi.lang", lang), [lang]);
+  // Préférences gardées côté serveur : elles reviennent après une mise à jour de l'appli.
   useEffect(() => {
-    localStorage.setItem("misogi.theme", theme);
+    const apply = () => {
+      if (!PARAMS.get("theme")) setTheme(storedTheme());
+      if (!PARAMS.get("lang")) setLang(stored("misogi.lang", defaultLang()));
+      dispatchEvent(new Event("misogi:autocollapse"));
+    };
+    addEventListener("misogi:prefs", apply);
+    void syncPrefs().catch(() => {});
+    return () => removeEventListener("misogi:prefs", apply);
+  }, []);
+  useEffect(() => savePref("misogi.lang", lang), [lang]);
+  useEffect(() => {
+    savePref("misogi.theme", theme);
     const media = matchMedia("(prefers-color-scheme: light)");
     const apply = () => {
       const name: ThemeName = theme === "system" ? (media.matches ? "rosee" : "eau") : theme;
@@ -284,6 +297,7 @@ export function App() {
               </header>
               {!online && <p className="border-b border-line bg-bad/10 px-3 py-1.5 text-2xs text-bad">{d.offline}</p>}
               <PendingBanner pending={pending} />
+              <UnconnectedBanner sessions={sessions} projects={projects} onChanged={refresh} />
               <Quotas />
               <Sessions sessions={visibleSessions} />
               <div className="flex-1 overflow-y-auto">
