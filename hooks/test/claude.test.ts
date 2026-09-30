@@ -70,6 +70,18 @@ describe("adaptateur Claude", () => {
     expect(ctx.finalMessage).toBe("Corrigé et testé.");
   });
 
+  it("ne prend pas le résumé de compaction pour la demande", () => {
+    const turn = turnFromEntries(
+      [
+        { type: "user", message: { content: "Corrige le bug de la fenêtre vide" } },
+        { type: "user", isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { content: "This session is being continued from a previous conversation…" } },
+        { type: "assistant", message: { content: [{ type: "text", text: "Corrigé." }] } },
+      ],
+      cwd,
+    );
+    expect(turn.request).toBe("Corrige le bug de la fenêtre vide");
+  });
+
   it("survit à un transcript absent", () => {
     const ctx = claude.context({ transcript_path: join(tmpdir(), "absent.jsonl"), cwd });
     expect(ctx.request).toBe("");

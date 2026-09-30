@@ -51,6 +51,8 @@ export interface Entry {
   type?: string;
   isMeta?: boolean;
   isSidechain?: boolean;
+  isCompactSummary?: boolean;
+  isVisibleInTranscriptOnly?: boolean;
   cwd?: string;
   timestamp?: string;
   message?: { content?: string | Block[]; stop_reason?: string | null };
@@ -140,7 +142,8 @@ function mergeByTime(a: Entry[], b: Entry[]): Entry[] {
 
 /** Texte tapé par l'utilisateur, ou null si l'entrée n'en est pas un (résultat d'outil, méta, rappel système). */
 export function humanText(e: Entry): string | null {
-  if (e.type !== "user" || e.isMeta || e.origin?.kind || e.promptSource === "system") return null;
+  // Résumé écrit par Claude Code quand il compacte la conversation : pas une demande de l'utilisateur.
+  if (e.type !== "user" || e.isMeta || e.isCompactSummary || e.isVisibleInTranscriptOnly || e.origin?.kind || e.promptSource === "system") return null;
   const content = e.message?.content;
   let text: string;
   if (typeof content === "string") text = content;

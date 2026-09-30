@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { MisogiEvent } from "../api";
 import { pct } from "../format";
 import { useT } from "../i18n";
@@ -28,7 +29,7 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
             <dl className="space-y-2 text-xs">
               <div>
                 <dt className="text-2xs text-faint">{t("summary.request")}</dt>
-                <dd className="whitespace-pre-wrap">{e.summary.request || "—"}</dd>
+                <LongText text={e.summary.request} />
               </div>
               <div>
                 <dt className="text-2xs text-faint">{t("summary.files")}</dt>
@@ -61,7 +62,7 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
               </div>
               <div>
                 <dt className="text-2xs text-faint">{t("summary.final")}</dt>
-                <dd className="whitespace-pre-wrap text-muted">{e.summary.final || "—"}</dd>
+                <LongText text={e.summary.final} className="text-muted" />
               </div>
             </dl>
           </Section>
@@ -119,4 +120,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export function Code({ value }: { value: unknown }) {
   return <pre className="overflow-x-auto rounded-md border border-line bg-surface p-2 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-muted">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</pre>;
+}
+
+/** Texte long (demande, message final) : replié sur quelques lignes, déroulable. */
+function LongText({ text, className = "" }: { text: string; className?: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (!text) return <dd>—</dd>;
+  const long = text.length > 280 || text.split("\n").length > 6;
+  return (
+    <dd className={className}>
+      <p className={`whitespace-pre-wrap break-words ${long && !open ? "line-clamp-6" : ""}`}>{text}</p>
+      {long && (
+        <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="mt-1 text-2xs text-accent hover:underline">
+          {open ? t("summary.showLess") : t("summary.showAll")}
+        </button>
+      )}
+    </dd>
+  );
 }

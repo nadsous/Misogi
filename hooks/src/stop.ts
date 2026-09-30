@@ -217,11 +217,11 @@ export async function runStop(ctx: StopContext, config: ProjectConfig, deps: Sto
     ...(config.log_state ? { state } : {}),
     facts,
     summary: redactDeep({
-      request: clip(ctx.request, 300),
+      request: clip(ctx.request, 2000),
       files: ctx.filesModified.slice(0, 30),
       ...(ctx.lastTest ? { test: { command: clip(ctx.lastTest.command, 120), failed: ctx.lastTest.failed } } : {}),
       checks: (ctx.checks ?? []).slice(-8).map((c) => ({ command: clip(c.command, 120), failed: c.failed, after_last_edit: c.afterLastEdit })),
-      final: clip(ctx.finalMessage, 300),
+      final: clip(ctx.finalMessage, 2000),
     }),
     relaunches,
   };
