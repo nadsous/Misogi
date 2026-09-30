@@ -1,28 +1,32 @@
 // Serveur local : surveille le journal, pousse les décisions en Server-Sent Events et sert la fenêtre.
-// N'écoute que sur 127.0.0.1. Les requêtes qui modifient quelque chose exigent l'en-tête x-misogi
+// N'écoute que sur 127.0.0.1 par défaut. Les requêtes qui modifient quelque chose exigent l'en-tête x-misogi
 // (une page tierce ne peut pas l'envoyer sans préflight CORS, que ce serveur refuse).
+// Seule exception : POST /api/ingest, où une session distante (SSH, conteneur) dépose ses décisions
+// avec le jeton de ~/.misogi/token.
 
 import { watch } from "chokidar";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { closeSync, openSync, readSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJsonl } from "./adapters/common.js";
 import { STOP_ADAPTERS } from "./adapters/index.js";
-import { listProjects, loadProjectConfig, misogiHome, samePath, saveProjectConfig } from "./config.js";
+import { forgetProject, hiddenProjects, hideProject, unhideProject, listProjects, loadProjectConfig, loadSettings, misogiHome, samePath, saveProjectConfig, saveSettings } from "./config.js";
 import { listGuides } from "./guides.js";
 import { findProjectIcon } from "./icons.js";
 import { getUsage } from "./usage.js";
 import { askJev } from "./jev.js";
-import { deleteApiKey, getApiKey, setApiKey } from "./keys.js";
+import { deleteApiKey, getApiKey, getSecret, setApiKey, setSecret, type SecretName } from "./keys.js";
+import { loadFeedback, reliability, replay, setFeedback, type Verdict } from "./feedback.js";
 import { HOOK_SCRIPT, install, installStatusline, isInstalled, isStatuslineInstalled, preview, uninstall, uninstallStatusline } from "./install.js";
-import { logPath } from "./log.js";
-import { detectAgents, wslLogFiles } from "./platform.js";
+import { appendEvent, logPath, purgeOlderThan } from "./log.js";
+import { answerPending, heartbeat, listBusy, listPending, remoteToken, setOverride, type OverrideAction } from "./runtime.js";
+import { detectAgents, projectRoot, which, wslLogFiles } from "./platform.js";
 import { listSessions, type SessionStatus } from "./sessions.js";
 import { buildStopState } from "./stop.js";
-import type { Agent, MisogiEvent, ProjectConfig } from "./types.js";
+import type { Agent, GlobalSettings, MisogiEvent, ProjectConfig } from "./types.js";
 
 export const DEFAULT_PORT = 4317;
 const BACKLOG = 500;
@@ -31,7 +35,11 @@ const SESSIONS_EVERY_MS = 3000;
 export interface ServeOptions {
   port?: number;
   staticDir?: string;
+  /** 127.0.0.1 par défaut ; 0.0.0.0 pour recevoir les décisions d'un conteneur de dev. */
+  listen?: string;
 }
+
+const PURGE_EVERY_MS = 6 * 3600_000;
 
 export function expandHome(p: string): string {
   return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
@@ -117,7 +125,11 @@ const MIME: Record<string, string> = {
 
 export function startServer(opts: ServeOptions = {}): Promise<{ port: number; close: () => void }> {
   const port = opts.port ?? DEFAULT_PORT;
-  const staticDir = opts.staticDir ?? resolve(fileURLToPath(new URL("../../app/dist", import.meta.url)));
+  // Interface : à côté du serveur dans le paquet npm (ui/), sinon celle du dépôt (app/dist).
+  const staticDir =
+    opts.staticDir ??
+    [fileURLToPath(new URL("./ui", import.meta.url)), resolve(fileURLToPath(new URL("../../app/dist", import.meta.url)))].find((d) => existsSync(join(d, "index.html"))) ??
+    resolve(fileURLToPath(new URL("../../app/dist", import.meta.url)));
   const logs = [logPath(), ...wslLogFiles()];
   const tails = new Map(logs.map((f) => [f, new Tail(f)]));
   const clients = new Set<ServerResponse>();
@@ -142,6 +154,45 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
     }
   };
   watcher.on("add", onLog).on("change", onLog);
+
+  // Décisions en attente : la fenêtre les affiche avec « Laisser passer » / « Relancer ».
+  // Et Jev au travail : pastille rose sur le projet concerné.
+  let pendingKey = "";
+  let busyKey = "";
+  const onBusy = () => {
+    const list = listBusy();
+    const key = list.map((b) => `${b.agent}:${b.project}:${b.hook}`).join(",");
+    if (key !== busyKey) {
+      busyKey = key;
+      broadcast("busy", list);
+    }
+  };
+  const onPending = () => {
+    onBusy();
+    const list = listPending();
+    const key = list.map((p) => p.id).join(",");
+    if (key !== pendingKey) {
+      pendingKey = key;
+      broadcast("pending", list);
+    }
+  };
+  const pendingPoll = setInterval(onPending, 500);
+
+  // Signe de vie : les hooks n'attendent ta réponse que si une fenêtre est ouverte.
+  const beat = setInterval(() => heartbeat(clients.size), 3000);
+  heartbeat(0);
+
+  // Durée de conservation des journaux.
+  const purge = () => {
+    try {
+      purgeOlderThan(loadSettings().retention_days);
+    } catch {
+      // purge ratée : on réessaiera
+    }
+  };
+  purge();
+  const purgeTimer = setInterval(purge, PURGE_EVERY_MS);
+  const token = remoteToken();
   // Les journaux WSL passent par un partage réseau où les notifications sont peu fiables : on les sonde.
   const poll = setInterval(() => {
     if (logs.length > 1) onLog();
@@ -154,8 +205,9 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
 
   const server = createServer(async (req, res) => {
     try {
-      if (!isLocalHost(req)) return send(res, 403, { error: "hôte refusé" });
       const url = new URL(req.url ?? "/", "http://localhost");
+      if (req.method === "POST" && url.pathname === "/api/ingest") return await ingest(req, res);
+      if (!isLocalHost(req)) return send(res, 403, { error: "hôte refusé" });
       if (url.pathname.startsWith("/api/")) {
         if (req.method !== "GET" && req.headers["x-misogi"] !== "1") return send(res, 403, { error: "en-tête x-misogi manquant" });
         return await api(req, res, url);
@@ -166,12 +218,31 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
     }
   });
 
+  /** Une session distante dépose une décision : elle rejoint le journal local et donc la fenêtre. */
+  async function ingest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { error: "jeton invalide" });
+    const e = await body<MisogiEvent>(req);
+    if (!e || typeof e.ts !== "string" || typeof e.agent !== "string" || typeof e.decision !== "string") return send(res, 400, { error: "décision invalide" });
+    appendEvent({ ...e, origin: typeof e.origin === "string" ? e.origin.slice(0, 80) : "distant" });
+    return send(res, 200, { ok: true });
+  }
+
+  /** Décisions d'un projet (toutes si path vide), pour la fiabilité et le rejeu. */
+  function projectEvents(path: string): MisogiEvent[] {
+    const all = readBacklog(logs, 100_000);
+    if (!path) return all;
+    return all.filter((e) => samePath(projectRoot(expandHome(e.project)), path));
+  }
+
   /** Projets connus : registre des installations, journal et sessions récentes. */
   function knownProjects(): Map<string, Agent[]> {
     const known = new Map<string, Agent[]>();
     for (const p of listProjects()) known.set(p.path, p.agents);
-    for (const e of readBacklog(logs)) addPath(known, expandHome(e.project), e.agent);
+    for (const e of readBacklog(logs)) if (!e.origin) addPath(known, projectRoot(expandHome(e.project)), e.agent);
     for (const s of sessions) if (s.project) addPath(known, s.project, s.agent);
+    // Pas de dossiers temporaires (tests, `claude -p` jetables) ni de projets supprimés depuis.
+    const hidden = hiddenProjects();
+    for (const p of [...known.keys()]) if (!keepProject(p) || hidden.some((h) => samePath(h, p))) known.delete(p);
     return known;
   }
 
@@ -183,6 +254,7 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
         res.write(`event: backlog\ndata: ${JSON.stringify(readBacklog(logs))}\n\n`);
         res.write(`event: sessions\ndata: ${JSON.stringify(sessions)}\n\n`);
+        res.write(`event: busy\ndata: ${JSON.stringify(listBusy())}\n\n`);
         clients.add(res);
         const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
         req.on("close", () => {
@@ -205,8 +277,72 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
         const agents = (Object.keys(found) as Agent[]).filter((a) => found[a]);
         for (const a of agents) install(a, dir);
         if (!agents.length) saveProjectConfig(dir, {});
+        unhideProject(dir);
         return send(res, 200, await projectView(dir, agents));
       }
+      case "GET /api/feedback":
+        return send(res, 200, loadFeedback());
+      case "POST /api/feedback": {
+        const { key, verdict } = await body<{ key: string; verdict: Verdict | null }>(req);
+        if (verdict !== null && verdict !== "right" && verdict !== "wrong") return send(res, 400, { error: "avis inconnu" });
+        return send(res, 200, setFeedback(String(key).slice(0, 300), verdict));
+      }
+      case "GET /api/reliability": {
+        const events = projectEvents(q("path"));
+        return send(res, 200, reliability(events, loadFeedback()));
+      }
+      case "GET /api/replay": {
+        const threshold = Number(q("threshold"));
+        if (!(threshold > 0 && threshold < 1)) return send(res, 400, { error: "seuil entre 0 et 1" });
+        return send(res, 200, replay(projectEvents(q("path")), threshold, loadFeedback()));
+      }
+      case "POST /api/projects/remove": {
+        // Retirer un projet de Misogi : hooks retirés, configs des agents remises comme avant,
+        // clé effacée du trousseau, et le projet ne réapparaît plus via ses sessions.
+        const { path } = await body<{ path: string }>(req);
+        const dir = resolve(expandHome(path));
+        const removed = [];
+        for (const a of ["claude", "codex", "kimi"] as Agent[]) if (isInstalled(a, dir)) removed.push(uninstall(a, dir));
+        forgetProject(dir);
+        await deleteApiKey(dir);
+        rmSync(join(dir, ".misogi", "config.json"), { force: true });
+        hideProject(dir);
+        return send(res, 200, { ok: true, removed });
+      }
+      case "GET /api/integrations": {
+        const status = async (name: SecretName, env: string) => (process.env[env] ? "env" : (await getSecret(name)) ? "keychain" : "none");
+        return send(res, 200, { github: await status("github", "GITHUB_TOKEN"), githubCli: !!which("gh"), gitlab: await status("gitlab", "GITLAB_TOKEN"), linear: await status("linear", "LINEAR_API_KEY") });
+      }
+      case "POST /api/integrations": {
+        const { name, token } = await body<{ name: SecretName; token: string | null }>(req);
+        if (!["github", "gitlab", "linear"].includes(name)) return send(res, 400, { error: "intégration inconnue" });
+        await setSecret(name, token ? token.trim() : null);
+        return send(res, 200, { ok: true });
+      }
+      case "GET /api/pending":
+        return send(res, 200, listPending());
+      case "POST /api/pending/answer": {
+        const { id, action } = await body<{ id: string; action: OverrideAction }>(req);
+        if (action !== "allow" && action !== "relaunch") return send(res, 400, { error: "action inconnue" });
+        const ok = answerPending(id, action);
+        onPending();
+        return send(res, ok ? 200 : 404, { ok });
+      }
+      case "POST /api/override": {
+        // Consigne pour le prochain arrêt d'une session : « laisser passer » ou « relancer ».
+        const { agent, session, action } = await body<{ agent: Agent; session: string; action: OverrideAction }>(req);
+        if (!["claude", "codex", "kimi"].includes(agent) || (action !== "allow" && action !== "relaunch")) return send(res, 400, { error: "consigne invalide" });
+        setOverride(agent, session, action);
+        return send(res, 200, { ok: true });
+      }
+      case "GET /api/settings":
+        return send(res, 200, loadSettings());
+      case "POST /api/settings": {
+        const next = saveSettings(await body<Partial<GlobalSettings>>(req));
+        return send(res, 200, { ...next, purged: purgeOlderThan(next.retention_days) });
+      }
+      case "GET /api/remote":
+        return send(res, 200, { token, port: opts.port ?? DEFAULT_PORT, listen: opts.listen ?? "127.0.0.1", addresses: lanAddresses() });
       case "GET /api/usage":
         return send(res, 200, { ...getUsage(), statusline: isStatuslineInstalled() });
       case "POST /api/usage/statusline": {
@@ -287,12 +423,15 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
 
   return new Promise((resolveStart, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
+    server.listen(port, opts.listen ?? "127.0.0.1", () => {
       const actual = (server.address() as { port: number }).port;
       resolveStart({
         port: actual,
         close: () => {
           clearInterval(poll);
+          clearInterval(pendingPoll);
+          clearInterval(beat);
+          clearInterval(purgeTimer);
           void watcher.close();
           for (const c of clients) c.end();
           server.close();
@@ -300,6 +439,22 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       });
     });
   });
+}
+
+const TMP = tmpdir().replace(/\\/g, "/").toLowerCase();
+
+/** Pas de dossiers temporaires (tests, `claude -p` jetables) ni de projets supprimés depuis. */
+function keepProject(path: string): boolean {
+  const p = path.replace(/\\/g, "/").toLowerCase();
+  if (p.startsWith(TMP + "/") || /\/appdata\/local\/temp\//.test(p) || p.startsWith("/tmp/") || p.startsWith("/private/var/folders/")) return false;
+  return existsSync(path);
+}
+
+function lanAddresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((i) => i && i.family === "IPv4" && !i.internal)
+    .map((i) => i!.address);
 }
 
 function addPath(map: Map<string, Agent[]>, path: string, agent: Agent): void {
@@ -344,8 +499,15 @@ function serveStatic(res: ServerResponse, dir: string, pathname: string): void {
   res.end("Misogi tourne. L'interface n'est pas construite : lance `npm run build -w app`.");
 }
 
+const MAX_BODY_BYTES = 256 * 1024;
+
 async function body<T>(req: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > MAX_BODY_BYTES) throw new Error("requête trop grosse");
+    chunks.push(c as Buffer);
+  }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as T;
 }

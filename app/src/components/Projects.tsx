@@ -179,6 +179,12 @@ function ProjectKey({ project, agentsFound, onChanged, onOpenSettings, onOpenGui
             {project.installed[a] ? "✓" : "+"}
           </button>
         ))}
+        <button
+          onClick={() => confirm(t("removeProject.confirm")) && run(async () => void (await api.removeProject(project.path)))}
+          className="text-2xs text-bad hover:underline"
+        >
+          {t("removeProject")}
+        </button>
         <span className="ml-auto flex flex-col items-end gap-1">
           <button onClick={onOpenGuides} className="whitespace-nowrap text-2xs text-accent hover:underline">
             {t("guides")} →

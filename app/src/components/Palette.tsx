@@ -27,12 +27,16 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 px-2 pt-12" onClick={onClose}>
-      <div className="overflow-hidden rounded-lg border border-line bg-raised shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={t("palette")} className="overflow-hidden rounded-lg border border-line bg-raised shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <input
           ref={input}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={t("palette")}
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-list"
+          aria-activedescendant={shown[i] ? `cmd-${shown[i]!.id}` : undefined}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") (e.preventDefault(), setI((x) => Math.min(x + 1, shown.length - 1)));
             if (e.key === "ArrowUp") (e.preventDefault(), setI((x) => Math.max(x - 1, 0)));
@@ -41,9 +45,9 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
           }}
           className="w-full border-b border-line bg-transparent px-3 py-2 text-[13px] outline-none placeholder:text-faint"
         />
-        <ul className="max-h-72 overflow-y-auto py-1">
+        <ul id="palette-list" role="listbox" className="max-h-72 overflow-y-auto py-1">
           {shown.map((c, n) => (
-            <li key={c.id}>
+            <li key={c.id} id={`cmd-${c.id}`} role="option" aria-selected={n === i}>
               <button onMouseEnter={() => setI(n)} onClick={() => pick(c)} className={`flex w-full items-center px-3 py-1.5 text-left text-xs ${n === i ? "bg-surface text-fg" : "text-muted"}`}>
                 <span className="truncate">{c.label}</span>
                 {c.hint && <span className="ml-auto pl-2 text-2xs text-faint">{c.hint}</span>}

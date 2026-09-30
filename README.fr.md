@@ -70,9 +70,44 @@ Tu commences en mode **Observer** : Misogi note seulement ce que Jev *aurait* fa
 | **Ce qui guide ton agent** | Les fichiers souvent invisibles qui l'orientent : `CLAUDE.md`, `AGENTS.md`, skills, sous-agents, commandes, hooks, serveurs MCP. |
 | **Tes projets, tes clés** | Chaque projet montre son icône (trouvée automatiquement), les agents branchés et l'état de sa clé Jev. Colle une clé une fois, teste-la, ou utilise-la pour tous tes projets. |
 | **Des décisions lisibles** | « Jev pense que les tests n'ont pas été lancés », pas du JSON brut. Le state exact et les probabilités sont à un clic. |
-| **Sûr par défaut** | Fail-open, mode shadow d'abord, secrets masqués avant tout envoi, clés dans le trousseau du système. |
+| **Garde-fou shell** | Avant qu'une commande risquée parte (`rm -rf`, `git push --force`, lecture d'un `.env`, envoi de données…), Jev juge si elle est destructrice ou fait fuir des secrets, et Misogi la refuse en mode Protéger. Les commandes ordinaires passent sans délai. Marche aussi en mode auto et bypass de Claude Code. |
+| **Tu gardes la main** | Quand Jev veut relancer l'agent, la fenêtre te laisse quelques secondes : **Laisser passer** ou **Relancer maintenant**. Les cartes rouges proposent la même chose pour le prochain arrêt. |
+| **Pas de boucle infinie** | Au plus 2 relances d'affilée (réglable) ; ensuite Misogi laisse passer et te prévient. |
+| **Sans interface et à distance** | `claude -p` et la CI n'attendent jamais de clic. Les sessions SSH et les conteneurs de dev envoient leurs décisions à ta fenêtre avec un jeton (`misogi remote`). |
+| **Relié aux tickets** | La branche (`feat/123-contact`, `ENG-42-login`) ou la demande (`#123`) relie la session à son ticket GitHub, GitLab ou Linear ; Jev vérifie les **critères d'acceptation**, pas seulement « c'est fini ? ». |
+| **Réglé sur tes données** | Dis « Jev avait raison / tort » sur chaque décision pour mesurer sa fiabilité sur ton projet, et rejoue les décisions passées avec un autre seuil avant de l'appliquer. |
+| **Résultats stables** | Épingle une version de Jev par projet. Le state envoyé est limité à ~30 000 tokens et coupé proprement. |
+| **Sûr par défaut** | Fail-open, mode shadow d'abord, secrets masqués avant tout envoi, clés dans le trousseau du système, journaux purgés après 30 jours (réglable). |
+| **Accessible** | Navigation au clavier (flèches entre les décisions, palette ⌘K), annonces pour lecteurs d'écran, contrastes WCAG AA vérifiés en CI sur chaque thème. |
 | **Désinstallation propre** | Les configs des agents sont sauvegardées avant toute modification ; « Tout désinstaller » ne retire que ce que Misogi a ajouté. |
 | **13 gouttes** | Des thèmes nommés d'après les gouttes qui tombent dans le courant : eau, rosée, lait, café, crème, feu, aube, matcha, washi, sakura, sel... |
+
+## FAQ
+
+**« Claude Opus est plus intelligent que Jev. Pourquoi demander à Jev ? »**
+Jev ne remplace pas Claude et n'écrit jamais de code. C'est un contrôle indépendant, comme un détecteur de fumée à côté du chef. Trois raisons d'en faire un modèle séparé :
+1. **Un modèle ne devrait pas corriger sa propre copie.** Claude qui dit « c'est fini » et Claude qui vérifie « ai-je fini ? » ont les mêmes angles morts.
+2. **Vitesse et coût.** Faire relire chaque tour par Opus prendrait 10 à 60 s et mangerait ton forfait. Jev répond en ~0,5 s pour environ 0,0001 $, avec une note de confiance *calibrée*, pas un avis.
+3. **Des réponses typées.** Jev répond à des questions précises par oui ou non (« tests lancés après la dernière modification ? »), exactement ce qu'il faut pour un contrôle automatique.
+
+**« Ça m'empêche d'utiliser le mode auto ? »**
+Non, c'est l'inverse. Les hooks tournent dans tous les modes de permission, auto et bypass compris. Le contrôle de fin ne te demande jamais rien. Et le garde-fou shell rend le mode auto *plus sûr* : les commandes dangereuses sont arrêtées avant de partir, le reste passe sans rien toucher.
+
+**« T3 Code fait déjà le suivi de tâches. »**
+T3 Code est une interface : il affiche joliment le travail de l'agent, il ne vérifie rien. Misogi tourne à côté (et à côté du terminal, de Cursor, de tout ce qui pilote Claude Code, Codex ou Kimi) et ajoute la vérification, les quotas et le garde-fou shell.
+
+**« Flemme de combiner 50 trucs. »**
+Une installation, une fenêtre : statut des sessions, quotas du forfait, ce qui guide l'agent, « c'est vraiment fini ? », garde-fou shell. Le reste est optionnel.
+
+**« Pourquoi je ne vois pas mes pourcentages de forfait Claude ? »**
+Claude Code ne donne ses limites 5 h et 7 jours qu'à sa *statusline*, qui n'existe que dans le terminal (`claude`). Les applis construites sur le SDK de Claude, comme T3 Code, ne lancent jamais de statusline : les pourcentages n'apparaissent qu'après avoir utilisé `claude` dans un terminal, une fois « Voir mes quotas Claude » activé. Les tokens consommés, eux, s'affichent toujours, quelle que soit l'appli. Les limites de Codex sont lues dans ses fichiers de session et marchent toujours.
+
+**« Combien ça coûte ? »**
+Misogi est gratuit et open source. Jev coûte environ 0,0001 $ par vérification. Rien n'est envoyé sans clé.
+
+## Zéro télémétrie
+
+Misogi n'envoie **rien** sur toi, ton code ou ton usage, à personne : pas d'analytics, pas de rapport de plantage, pas de ping de mise à jour. La seule requête sortante est l'appel à Jev (`hooks/src/jev.ts`), et seulement pour les projets où tu as mis une clé. En option, les sessions à distance écrivent à *ta* fenêtre avec *ton* jeton. C'est tout, et tu peux le vérifier dans le code.
 
 ## Les gouttes
 
@@ -84,6 +119,15 @@ Chaque thème recolore la goutte de verre du logo. Choisis-la dans **Réglages �
 
 Il faut Node 20+ et au moins un agent parmi Claude Code, Codex et Kimi Code.
 
+Le plus rapide, sans rien cloner :
+
+```sh
+npx misogi               # ouvre la fenêtre
+npx misogi install       # dans ton projet : hooks pour chaque agent trouvé
+```
+
+Ou l'appli desktop depuis les [Releases](https://github.com/nadsous/Misogi/releases) (Windows, macOS, Linux, mises à jour automatiques). Ou depuis les sources :
+
 ```sh
 git clone https://github.com/nadsous/Misogi && cd Misogi
 npm install
@@ -92,6 +136,8 @@ npm run serve            # ouvre http://127.0.0.1:4317
 ```
 
 Dans la fenêtre, clique sur **+** pour ajouter le dossier d'un projet, colle ta [clé TypeSafe](https://console.typesafe.ai), c'est tout. Pas encore de clé ? `MISOGI_MOCK=1` donne des réponses simulées.
+
+📘 **[Bien utiliser Jev dans tes projets](docs/jev-guide.fr.md)** : clé, semaine d'observation, version épinglée, tests, garde-fou shell, CI, sessions à distance.
 
 **Quotas Claude** : clique sur *Voir mes quotas Claude* dans le panneau Quotas. Misogi ajoute une statusline à Claude Code qui enregistre tes limites ; si tu en avais déjà une, elle est gardée et continue de s'afficher.
 

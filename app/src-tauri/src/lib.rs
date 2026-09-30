@@ -45,7 +45,9 @@ fn set_collapsed(window: WebviewWindow, expanded: State<Expanded>, collapsed: bo
         *saved = Some(size.width);
         (STRIP * scale) as u32
     } else {
-        saved.take().unwrap_or((WIDTH * scale) as u32)
+        // Sans largeur mémorisée (ex. fenêtre rouverte après une fermeture en mode bande) : on garde la
+        // largeur actuelle si elle est normale, sinon on revient à la largeur par défaut.
+        saved.take().unwrap_or(if (size.width as f64) / scale >= 200.0 { size.width } else { (WIDTH * scale) as u32 })
     };
     let inner = window.inner_size().map_err(err)?;
     window.set_size(PhysicalSize::new(width, inner.height)).map_err(err)?;
@@ -147,7 +149,8 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let toggle_item = MenuItem::with_id(app, "toggle", "Afficher / masquer", true, None::<&str>)?;
     let on_top = CheckMenuItem::with_id(app, "on_top", "Toujours au-dessus", true, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quitter Misogi", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&toggle_item, &on_top, &quit])?;
+    let update = MenuItem::with_id(app, "update", "Rechercher une mise à jour", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&toggle_item, &on_top, &update, &quit])?;
     let on_top_handle = on_top.clone();
 
     let mut tray = TrayIconBuilder::with_id("misogi")
@@ -162,6 +165,10 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     let _ = w.set_always_on_top(on);
                 }
             }
+            "update" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move { check_update(app, true).await });
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -175,6 +182,31 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     }
     tray.build(app)?;
     Ok(())
+}
+
+/// Mises à jour signées (clé publique dans tauri.conf.json, clé privée seulement dans les secrets GitHub) :
+/// au démarrage on vérifie et on prévient ; l'installation se lance depuis le menu de la barre des tâches.
+async fn check_update(app: AppHandle, install: bool) {
+    use tauri_plugin_notification::NotificationExt;
+    use tauri_plugin_updater::UpdaterExt;
+    let notify = |body: String| {
+        let _ = app.notification().builder().title("Misogi").body(body).show();
+    };
+    let Ok(updater) = app.updater() else { return };
+    match updater.check().await {
+        Ok(Some(update)) if install => {
+            notify(format!("Installation de Misogi {}…", update.version));
+            if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
+                app.restart();
+            } else {
+                notify("La mise à jour n'a pas pu être installée.".into());
+            }
+        }
+        Ok(Some(update)) => notify(format!("Misogi {} est disponible : menu de l'icône → « Rechercher une mise à jour ».", update.version)),
+        Ok(None) if install => notify("Misogi est à jour.".into()),
+        Err(_) if install => notify("Impossible de vérifier les mises à jour (hors ligne ?).".into()),
+        _ => {}
+    }
 }
 
 /// Démarrage avec le système : activé une fois au premier lancement, l'utilisateur garde la main ensuite.
@@ -206,6 +238,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -226,6 +259,8 @@ pub fn run() {
             setup_tray(&handle)?;
             let _ = handle.global_shortcut().register(toggle_shortcut);
             enable_autostart_once(&handle);
+            let updates = handle.clone();
+            tauri::async_runtime::spawn(async move { check_update(updates, false).await });
             Ok(())
         })
         .build(tauri::generate_context!())

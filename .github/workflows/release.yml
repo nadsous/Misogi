@@ -1,0 +1,108 @@
+name: Release
+
+# Pousse un tag (ex. `git tag v0.2.0 && git push --tags`) : les installateurs des 3 systèmes
+# sont construits, signés, et attachés à un brouillon de release GitHub, à relire puis publier.
+#
+# Signatures (voir docs/signing.md) :
+# - Mises à jour : TOUJOURS signées (secrets TAURI_SIGNING_PRIVATE_KEY et _PASSWORD, déjà configurés).
+# - macOS (Developer ID + notarisation) : si les secrets APPLE_* existent.
+# - Windows (Azure Trusted Signing) : si les secrets AZURE_* existent.
+# Sans ces secrets, les paquets sont construits quand même, non signés.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows (x64)
+            os: windows-latest
+            args: ""
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - name: macOS (Intel)
+            os: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - name: Linux (x64)
+            os: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ contains(matrix.args, 'apple') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: Dépendances Linux (WebKitGTK, AppIndicator)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+
+      - name: Signature macOS (seulement si les secrets Apple sont configurés)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          done
+
+      - name: Signature Windows (seulement si Azure Trusted Signing est configuré)
+        if: runner.os == 'Windows' && env.HAS_AZURE == 'true'
+        shell: bash
+        env:
+          AZURE_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+        run: |
+          cargo install trusted-signing-cli --locked
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
+          echo "AZURE_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> "$GITHUB_ENV"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+          echo "SIGN_ARGS=--config {\"bundle\":{\"windows\":{\"signCommand\":\"trusted-signing-cli -e $AZURE_ENDPOINT -a $AZURE_ACCOUNT -c $AZURE_PROFILE %1\"}}}" >> "$GITHUB_ENV"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: "Misogi ${{ github.ref_name }}"
+          releaseBody: |
+            Installe le paquet de ton système, puis lance Misogi. Node 20+ doit être installé (les hooks tournent avec `node`).
+            Ou sans rien installer : `npx misogi`.
+
+            - **Windows** : `.exe` (installation pour l'utilisateur) ou `.msi`.
+            - **macOS** : `.dmg` Apple Silicon (aarch64) ou Intel (x64).
+            - **Linux** : `.AppImage` (partout), `.deb` (Debian/Ubuntu) ou `.rpm` (Fedora).
+
+            Les mises à jour suivantes s'installent depuis l'appli (menu de l'icône → « Rechercher une mise à jour »), vérifiées par signature.
+            Si l'appli n'est pas encore signée pour ton système : Windows → « Informations complémentaires » → « Exécuter quand même » ; macOS → clic droit → Ouvrir.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }} ${{ env.SIGN_ARGS }}

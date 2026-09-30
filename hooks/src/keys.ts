@@ -43,6 +43,33 @@ export async function setApiKey(projectDir: string, key: string): Promise<void> 
   new Entry(KEYRING_SERVICE, keyAccount(projectDir)).setPassword(key);
 }
 
+/** Jetons des intégrations (github, gitlab, linear), dans le même trousseau. */
+export type SecretName = "github" | "gitlab" | "linear";
+
+export async function getSecret(name: SecretName): Promise<string | undefined> {
+  const Entry = await keyring();
+  if (!Entry) return undefined;
+  try {
+    return new Entry(KEYRING_SERVICE, `integration:${name}`).getPassword() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function setSecret(name: SecretName, value: string | null): Promise<void> {
+  const Entry = await keyring();
+  if (!Entry) throw new Error("trousseau indisponible sur cette machine (module @napi-rs/keyring absent)");
+  const entry = new Entry(KEYRING_SERVICE, `integration:${name}`);
+  if (value) entry.setPassword(value);
+  else {
+    try {
+      entry.deletePassword();
+    } catch {
+      // rien à supprimer
+    }
+  }
+}
+
 export async function deleteApiKey(projectDir: string): Promise<void> {
   const Entry = await keyring();
   if (!Entry) return;

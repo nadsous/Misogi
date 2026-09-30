@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe("installation Claude / Codex", () => {
   it("ajoute le hook sans toucher au reste, sauvegarde, puis restaure", () => {
-    const settings = join(project, ".claude", "settings.json");
+    const settings = join(project, ".claude", "settings.local.json");
     mkdirSync(join(project, ".claude"));
     const original = { permissions: { allow: ["Bash(npm test)"] }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo fini" }] }] } };
     writeFileSync(settings, JSON.stringify(original));
@@ -43,6 +43,16 @@ describe("installation Claude / Codex", () => {
     expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual(original);
     expect(existsSync(r.backup!)).toBe(false);
     expect(listProjects()).toEqual([]);
+  });
+
+  it("migre une ancienne installation de settings.json vers settings.local.json (jamais commité)", () => {
+    mkdirSync(join(project, ".claude"));
+    const shared = join(project, ".claude", "settings.json");
+    writeFileSync(shared, JSON.stringify({ permissions: { allow: [] }, hooks: { Stop: [{ hooks: [{ type: "command", command: 'node "C:/old/hook.js" claude stop' }] }] } }));
+    expect(isInstalled("claude", project)).toBe(true);
+    install("claude", project);
+    expect(JSON.parse(readFileSync(shared, "utf8"))).toEqual({ permissions: { allow: [] } });
+    expect(readFileSync(join(project, ".claude", "settings.local.json"), "utf8")).toContain("claude stop");
   });
 
   it("Codex : crée .codex/hooks.json", () => {
@@ -87,7 +97,7 @@ describe("installation Kimi", () => {
     const withHook = addKimiHook(config, 'node "C:/x/hook.js" kimi stop --tracked-only');
     const parsed = parse(withHook) as { hooks: { event: string; command: string }[]; default_model: string };
     expect(parsed.default_model).toBe("k");
-    expect(parsed.hooks).toEqual([{ event: "Stop", command: 'node "C:/x/hook.js" kimi stop --tracked-only', timeout: 5 }]);
+    expect(parsed.hooks).toEqual([{ event: "Stop", command: 'node "C:/x/hook.js" kimi stop --tracked-only', timeout: 75 }]);
     expect(removeKimiHook(withHook)).toBe(config);
   });
 

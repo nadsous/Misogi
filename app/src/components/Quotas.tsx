@@ -25,7 +25,7 @@ export function Quotas() {
 
   return (
     <section className="border-b border-line px-3 py-2.5">
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-2xs font-medium tracking-wider text-faint uppercase">
+      <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-center gap-2 text-2xs font-medium tracking-wider text-faint uppercase">
         {t("quotas")}
         {!open && (
           <span className="ml-1 flex items-center gap-2 normal-case">
@@ -92,7 +92,7 @@ function AgentRow({ agent, usage, statusline, onEnable }: { agent: Agent; usage:
               <Tip text={t("quota.enable.help")} />
             </span>
           ) : (
-            <p className="text-2xs text-faint">{agent === "kimi" ? t("quota.noLimits") : "—"}</p>
+            <p className="text-2xs text-faint">{agent === "kimi" ? t("quota.noLimits") : agent === "claude" ? t("quota.claudeTerminal") : "—"}</p>
           ))}
       </div>
     </div>
@@ -112,7 +112,7 @@ function QuotaBar({ window: w }: { window: QuotaWindow }) {
           {w.resetsAt && <span className="text-faint"> · {t("quota.resets")} {until(w.resetsAt, lang)}</span>}
         </span>
       </div>
-      <div className="mt-1 h-2 overflow-hidden rounded-full bg-line">
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={t(w.label === "5h" ? "quota.5h" : "quota.7d")}>
         <div className={`h-full rounded-full transition-[width] duration-700 ${barTone(pct)}`} style={{ width: `${pct}%` }} />
       </div>
     </div>

@@ -7,3 +7,9 @@ dist/
 app/src-tauri/target/
 app/src-tauri/gen/
 hooks/bundle/
+dist-npm/
+
+# Réglages locaux (chemins propres à ta machine)
+.claude/settings.local.json
+.claude/*.misogi-backup
+.misogi/

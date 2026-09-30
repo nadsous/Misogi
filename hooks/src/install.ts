@@ -2,26 +2,57 @@
 // Avant toute modification, le fichier de config de l'agent est sauvegardé (<fichier>.misogi-backup).
 // La désinstallation retire uniquement ce que Misogi a ajouté.
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
-import { isTracked, misogiHome, saveProjectConfig, updateProject } from "./config.js";
+import { isTracked, misogiHome, saveProjectConfig, unhideProject, updateProject } from "./config.js";
 import { agentHome, portablePath } from "./platform.js";
 import type { Agent } from "./types.js";
 
 export const HOOK_SCRIPT = portablePath(fileURLToPath(new URL("./hook.js", import.meta.url)));
-// Le guillemet est échappé (\") quand on teste le texte brut d'un fichier JSON.
-const OURS = /hook\.js\\?"? (claude|codex|kimi) stop/;
-const TIMEOUT_S = 5;
 
-export function hookCommand(agent: Agent, script = HOOK_SCRIPT): string {
-  return `node "${script}" ${agent} stop${agent === "kimi" ? " --tracked-only" : ""}`;
+/**
+ * Chemin du hook à écrire dans la config des agents. Lancé via `npx misogi`, le paquet vit dans un cache
+ * que npm peut vider : on copie alors le hook (un seul fichier) et le module du trousseau dans ~/.misogi/bin.
+ */
+export function stableHookScript(): string {
+  const source = fileURLToPath(new URL("./hook.js", import.meta.url));
+  const ephemeral = /[\\/]_npx[\\/]/.test(source) || source.toLowerCase().startsWith(tmpdir().toLowerCase());
+  if (!ephemeral) return portablePath(source);
+  const bin = join(misogiHome(), "bin");
+  mkdirSync(bin, { recursive: true });
+  copyFileSync(source, join(bin, "hook.js"));
+  writeFileSync(join(bin, "package.json"), '{ "type": "module" }\n');
+  try {
+    const scope = dirname(dirname(createRequire(import.meta.url).resolve("@napi-rs/keyring/package.json")));
+    for (const d of readdirSync(scope).filter((n) => n === "keyring" || n.startsWith("keyring-"))) {
+      cpSync(join(scope, d), join(bin, "node_modules", "@napi-rs", d), { recursive: true });
+    }
+  } catch {
+    // sans module natif, le hook lit la clé dans TYPESAFE_API_KEY
+  }
+  return portablePath(join(bin, "hook.js"));
+}
+// Le guillemet est échappé (\") quand on teste le texte brut d'un fichier JSON.
+const OURS = /hook\.js\\?"? (claude|codex|kimi) (stop|pretool)/;
+/** Stop : assez long pour te laisser trancher depuis la fenêtre (attente réglable, 60 s au plus). */
+const STOP_TIMEOUT_S = 75;
+/** Avant outil : le garde-fou ne consulte Jev que pour les commandes risquées, 1,5 s au plus. */
+const PRETOOL_TIMEOUT_S = 10;
+/** Nom de l'outil shell pour le matcher du hook avant outil. */
+const SHELL_MATCHER: Record<Agent, string> = { claude: "Bash", codex: "Bash", kimi: "Shell" };
+
+export function hookCommand(agent: Agent, script = stableHookScript(), hook: "stop" | "pretool" = "stop"): string {
+  return `node "${script}" ${agent} ${hook}${agent === "kimi" ? " --tracked-only" : ""}`;
 }
 
 /** Fichier de config touché pour cet agent et ce projet. */
 export function configFile(agent: Agent, project: string): string {
-  if (agent === "claude") return join(project, ".claude", "settings.json");
+  // settings.local.json : propre à ta machine (le chemin du hook y est absolu), jamais commité.
+  if (agent === "claude") return join(project, ".claude", "settings.local.json");
   if (agent === "codex") return join(project, ".codex", "hooks.json");
   // Kimi ne lit ses hooks que dans la config globale ; le hook filtre ensuite les projets suivis.
   return join(agentHome("kimi"), "config.toml");
@@ -41,35 +72,52 @@ export function preview(agent: Agent, project: string): { file: string; command:
 export function install(agent: Agent, project: string): InstallResult {
   project = resolve(project);
   const file = configFile(agent, project);
-  const command = hookCommand(agent);
+  const script = stableHookScript();
+  const command = hookCommand(agent, script);
   const backup = backupOnce(file);
-  if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command), "utf8");
-  else writeJson(file, addJsonHook(readJson(file), command));
+  const pretool = hookCommand(agent, script, "pretool");
+  if (agent === "claude") removeFromJsonFile(legacyClaudeFile(project));
+  if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool), "utf8");
+  else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent]));
   if (!isTracked(project)) saveProjectConfig(project, {});
   updateProject(project, (a) => [...new Set([...a, agent])]);
+  unhideProject(project);
   return { file, backup, command };
+}
+
+/** Anciennes versions : le hook Claude était écrit dans .claude/settings.json. */
+function legacyClaudeFile(project: string): string {
+  return join(project, ".claude", "settings.json");
+}
+
+function removeFromJsonFile(file: string): boolean {
+  if (!existsSync(file)) return false;
+  const before = readFileSync(file, "utf8");
+  const json = removeJsonHook(readJson(file));
+  const changed = JSON.stringify(json) !== JSON.stringify(JSON.parse(before || "{}"));
+  if (changed) writeJson(file, json);
+  rmSync(file + ".misogi-backup", { force: true });
+  return changed;
 }
 
 export function uninstall(agent: Agent, project: string): { file: string; changed: boolean } {
   project = resolve(project);
   const file = configFile(agent, project);
   updateProject(project, (a) => a.filter((x) => x !== agent));
-  if (!existsSync(file)) return { file, changed: false };
+  const legacy = agent === "claude" && removeFromJsonFile(legacyClaudeFile(project));
+  if (!existsSync(file)) return { file, changed: legacy };
   const before = readFileSync(file, "utf8");
   if (agent === "kimi") {
     const after = removeKimiHook(before);
     if (after !== before) writeFileSync(file, after, "utf8");
     return { file, changed: after !== before };
   }
-  const json = removeJsonHook(readJson(file));
-  const changed = JSON.stringify(json) !== JSON.stringify(JSON.parse(before || "{}"));
-  if (changed) writeJson(file, json);
-  rmSync(file + ".misogi-backup", { force: true });
-  return { file, changed };
+  return { file, changed: removeFromJsonFile(file) || legacy };
 }
 
 export function isInstalled(agent: Agent, project: string): boolean {
   const file = configFile(agent, resolve(project));
+  if (agent === "claude" && existsSync(legacyClaudeFile(resolve(project))) && OURS.test(readFileSync(legacyClaudeFile(resolve(project)), "utf8"))) return true;
   if (!existsSync(file)) return false;
   const text = readFileSync(file, "utf8");
   return agent === "kimi" ? text.includes(KIMI_BEGIN) && isTracked(resolve(project)) : OURS.test(text);
@@ -86,7 +134,7 @@ function prevStatuslineFile(): string {
   return join(misogiHome(), "statusline-prev.json");
 }
 
-export function statuslineCommand(script = HOOK_SCRIPT): string {
+export function statuslineCommand(script = stableHookScript()): string {
   return `node "${script}" claude statusline`;
 }
 
@@ -143,18 +191,21 @@ export function uninstallStatusline(): { file: string; changed: boolean } {
 type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 type HooksJson = { hooks?: Record<string, HookGroup[]> } & Record<string, unknown>;
 
-export function addJsonHook(json: HooksJson, command: string): HooksJson {
+export function addJsonHook(json: HooksJson, command: string, pretool?: string, matcher = "Bash"): HooksJson {
   const clean = removeJsonHook(json);
   const hooks = { ...(clean.hooks ?? {}) };
-  hooks.Stop = [...(hooks.Stop ?? []), { hooks: [{ type: "command", command, timeout: TIMEOUT_S }] }];
+  hooks.Stop = [...(hooks.Stop ?? []), { hooks: [{ type: "command", command, timeout: STOP_TIMEOUT_S }] }];
+  if (pretool) hooks.PreToolUse = [...(hooks.PreToolUse ?? []), { matcher, hooks: [{ type: "command", command: pretool, timeout: PRETOOL_TIMEOUT_S }] }];
   return { ...clean, hooks };
 }
 
 export function removeJsonHook(json: HooksJson): HooksJson {
-  if (!json.hooks?.Stop) return json;
-  const stop = json.hooks.Stop.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !OURS.test(h.command ?? "")) })).filter((g) => g.hooks.length > 0);
-  const hooks = { ...json.hooks, Stop: stop };
-  if (!stop.length) delete (hooks as Record<string, unknown>).Stop;
+  if (!json.hooks) return json;
+  const hooks: Record<string, HookGroup[]> = {};
+  for (const [event, groups] of Object.entries(json.hooks)) {
+    const kept = (groups ?? []).map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !OURS.test(h.command ?? "")) })).filter((g) => g.hooks.length > 0);
+    if (kept.length) hooks[event] = kept;
+  }
   const out: HooksJson = { ...json, hooks };
   if (!Object.keys(hooks).length) delete out.hooks;
   return out;
@@ -166,7 +217,7 @@ const KIMI_BEGIN = "# >>> misogi";
 const KIMI_END = "# <<< misogi";
 const EMPTY_HOOKS = /^hooks[ \t]*=[ \t]*\[[ \t]*\][ \t]*(\r?\n|$)/m;
 
-export function addKimiHook(toml: string, command: string): string {
+export function addKimiHook(toml: string, command: string, pretool?: string): string {
   let text = removeKimiHook(toml);
   let note = "";
   if (EMPTY_HOOKS.test(text)) {
@@ -177,7 +228,9 @@ export function addKimiHook(toml: string, command: string): string {
   } else if (/^hooks\s*=\s*\[/m.test(text)) {
     throw new Error("~/.kimi/config.toml déclare « hooks = [...] » en ligne : passe-les au format [[hooks]] puis relance");
   }
-  const block = [KIMI_BEGIN + note, "[[hooks]]", 'event = "Stop"', `command = '${command}'`, `timeout = ${TIMEOUT_S}`, KIMI_END].join("\n");
+  const lines = [KIMI_BEGIN + note, "[[hooks]]", 'event = "Stop"', `command = '${command}'`, `timeout = ${STOP_TIMEOUT_S}`];
+  if (pretool) lines.push("", "[[hooks]]", 'event = "PreToolUse"', `matcher = "${SHELL_MATCHER.kimi}"`, `command = '${pretool}'`, `timeout = ${PRETOOL_TIMEOUT_S}`);
+  const block = [...lines, KIMI_END].join("\n");
   const out = text.replace(/\s*$/, "") + "\n\n" + block + "\n";
   parseToml(out); // lève une erreur plutôt que d'écrire une config cassée
   return out;

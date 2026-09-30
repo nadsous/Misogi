@@ -1,28 +1,43 @@
 #!/usr/bin/env node
-// CLI `misogi` : install, uninstall, doctor, key, serve.
+// CLI `misogi` : install, uninstall, doctor, key, serve, remote, purge.
 
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { isAgent } from "./adapters/index.js";
-import { listProjects } from "./config.js";
+import { listProjects, loadSettings } from "./config.js";
 import { doctor, formatChecks } from "./doctor.js";
-import { HOOK_SCRIPT, install, preview, uninstall } from "./install.js";
+import { install, preview, stableHookScript, uninstall } from "./install.js";
 import { deleteApiKey, setApiKey } from "./keys.js";
+import { purgeOlderThan } from "./log.js";
 import { detectAgents } from "./platform.js";
+import { remoteToken } from "./runtime.js";
 import { DEFAULT_PORT, startServer } from "./server.js";
 import type { Agent } from "./types.js";
 
 const HELP = `misogi — voir ce que Jev pense de chaque décision de ton agent
 
+  misogi                                   ouvre la fenêtre dans le navigateur
   misogi install [claude|codex|kimi|all]   installe le hook Stop dans le projet courant (sauvegarde la config avant)
   misogi uninstall [agent|all] [--all-projects]  retire les hooks et remet les configs comme avant
   misogi doctor [--ping]                    vérifie clé, hooks et journal
   misogi key set [clé]                      range la clé TypeSafe du projet dans le trousseau (sinon lue sur stdin)
   misogi key delete
-  misogi serve [--port ${DEFAULT_PORT}] [--static <dossier>]  fenêtre dans le navigateur, journal en direct
+  misogi serve [--port ${DEFAULT_PORT}] [--static <dossier>] [--listen 0.0.0.0]  fenêtre dans le navigateur, journal en direct
+  misogi remote                             comment brancher une session SSH ou un conteneur de dev sur cette fenêtre
+  misogi purge [--days 30]                  supprime les décisions plus anciennes (par défaut : durée de conservation réglée)
 
   --project <dossier>   projet visé (défaut : dossier courant)
   --dry-run             pour install : affiche ce qui serait écrit, sans rien toucher`;
+
+function openBrowser(url: string): void {
+  const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+  try {
+    spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  } catch {
+    // pas de navigateur : l'adresse est affichée
+  }
+}
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -40,7 +55,7 @@ function agentsFrom(arg: string | undefined): Agent[] {
 
 async function main(): Promise<number> {
   const [cmd, ...args] = process.argv.slice(2);
-  const valued = new Set(["--project", "--port", "--static"]);
+  const valued = new Set(["--project", "--port", "--static", "--listen", "--days"]);
   const positional = args.filter((a, i) => !a.startsWith("--") && !valued.has(args[i - 1] ?? ""));
   const project = resolve(flag(args, "--project") ?? process.cwd());
 
@@ -57,7 +72,7 @@ async function main(): Promise<number> {
         const r = install(agent, project);
         console.log(`✓ ${agent} : hook Stop ajouté à ${r.file}${r.backup ? `\n  sauvegarde : ${r.backup}` : ""}`);
       }
-      if (!args.includes("--dry-run")) console.log(`\nScript enregistré : ${HOOK_SCRIPT}\nMode shadow : rien n'est bloqué. Lance \`misogi doctor\` pour vérifier.`);
+      if (!args.includes("--dry-run")) console.log(`\nScript enregistré : ${stableHookScript()}\nMode shadow : rien n'est bloqué. Lance \`misogi doctor\` pour vérifier.`);
       return 0;
     }
     case "uninstall": {
@@ -88,15 +103,54 @@ async function main(): Promise<number> {
       console.log(`✓ clé rangée dans le trousseau pour ${project}`);
       return 0;
     }
+    case "remote": {
+      const token = remoteToken();
+      console.log(`Brancher une session distante sur cette fenêtre
+Le journal d'une session SSH ou d'un conteneur n'est pas sur ta machine : le hook distant envoie
+chaque décision ici, signée avec ce jeton (garde-le pour toi) :
+
+  MISOGI_TOKEN=${token}
+
+1. SSH : ouvre la session avec un tunnel inverse, puis installe Misogi sur la machine distante.
+     ssh -R ${DEFAULT_PORT}:127.0.0.1:${DEFAULT_PORT} ta-machine
+     export MISOGI_REMOTE=http://127.0.0.1:${DEFAULT_PORT} MISOGI_TOKEN=${token}
+
+2. Conteneur de dev : lance la fenêtre avec  misogi serve --listen 0.0.0.0  puis dans devcontainer.json :
+     "remoteEnv": { "MISOGI_REMOTE": "http://host.docker.internal:${DEFAULT_PORT}", "MISOGI_TOKEN": "${token}" }
+
+3. Claude Code sur le web : la session tourne sur les serveurs d'Anthropic. Il faut un tunnel public
+   (cloudflared, ngrok) vers ${DEFAULT_PORT} et le hook Misogi dans le dépôt : expérimental.
+
+Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne quand même.`);
+      return 0;
+    }
+    case "purge": {
+      const days = Number(flag(args, "--days")) || loadSettings().retention_days;
+      console.log(`✓ ${purgeOlderThan(days)} décision(s) de plus de ${days} jours supprimée(s)`);
+      return 0;
+    }
     case "serve": {
       const staticDir = flag(args, "--static");
-      const { port } = await startServer({ port: Number(flag(args, "--port")) || DEFAULT_PORT, staticDir: staticDir && resolve(staticDir) });
+      const listen = flag(args, "--listen");
+      const { port } = await startServer({ port: Number(flag(args, "--port")) || DEFAULT_PORT, staticDir: staticDir && resolve(staticDir), listen });
+      if (listen && listen !== "127.0.0.1") console.log(`Écoute sur ${listen} : seules les décisions signées avec le jeton (misogi remote) sont acceptées depuis le réseau.`);
       console.log(`Misogi : http://127.0.0.1:${port}`);
       return new Promise(() => {});
     }
   }
+  // `npx misogi` tout court : la fenêtre s'ouvre dans le navigateur, le reste se fait depuis elle.
+  if (!cmd) {
+    const { port } = await startServer({ port: DEFAULT_PORT }).catch(async (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") return { port: DEFAULT_PORT }; // déjà lancée : on ouvre juste la fenêtre
+      throw err;
+    });
+    const url = `http://127.0.0.1:${port}`;
+    console.log(`Misogi : ${url}  (Ctrl+C pour arrêter ; « misogi help » pour les commandes)`);
+    openBrowser(url);
+    return new Promise(() => {});
+  }
   console.log(HELP);
-  return cmd && cmd !== "help" && cmd !== "--help" ? 1 : 0;
+  return cmd !== "help" && cmd !== "--help" ? 1 : 0;
 }
 
 main().then(

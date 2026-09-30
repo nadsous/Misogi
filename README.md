@@ -77,9 +77,44 @@ Start in **Observe** mode: Misogi only logs what Jev *would* have done. When you
 | **What guides your agent** | The often invisible files that steer it: `CLAUDE.md`, `AGENTS.md`, skills, subagents, commands, hooks, MCP servers, per project and global. |
 | **Your projects, your keys** | Each project shows its icon (favicon, logo or app icon, found automatically), the agents plugged in, and whether its Jev key is ready. Paste a key once, test it, or reuse it for every project. |
 | **Readable decisions** | "Jev thinks the tests were not run", not raw JSON. The exact state sent and the probabilities are one click away. |
-| **Safe by default** | Fail-open (if anything breaks, the agent carries on), shadow mode first, secrets masked before anything leaves your machine, keys in the OS keychain. |
+| **Shell guard** | Before a risky command runs (`rm -rf`, `git push --force`, reading `.env`, uploading data…), Jev judges if it is destructive or leaks secrets, and Misogi refuses it in Protect mode. Ordinary commands run with no delay. Works in Claude Code's auto and bypass modes. |
+| **You stay in charge** | When Jev wants to send the agent back, the window gives you a few seconds: **Let it through** or **Relaunch now**. Red cards offer the same for the next stop. |
+| **No infinite loop** | At most 2 relaunches in a row (configurable); then Misogi lets it through and notifies you. |
+| **Headless & remote** | `claude -p` and CI never wait for a click. SSH sessions and dev containers send their decisions to your window with a token (`misogi remote`). |
+| **Ticket-aware** | The branch (`feat/123-contact`, `ENG-42-login`) or the request (`#123`) links the session to its GitHub, GitLab or Linear ticket; Jev checks the **acceptance criteria**, not just "done?". |
+| **Tune it on your data** | Mark each decision "Jev was right / wrong" to measure its reliability on your project, and replay past decisions with another threshold before applying it. |
+| **Stable results** | Pin a Jev version per project so results do not change overnight. The state sent is capped at ~30k tokens and trimmed cleanly. |
+| **Safe by default** | Fail-open (if anything breaks, the agent carries on), shadow mode first, secrets masked before anything leaves your machine, keys in the OS keychain, logs purged after 30 days (configurable). |
+| **Accessible** | Keyboard navigation (arrows between decisions, ⌘K palette), screen-reader announcements, every theme checked for WCAG AA contrast in CI. |
 | **Clean uninstall** | Agent configs are backed up before any change; "Uninstall everything" removes only what Misogi added. |
 | **13 drops** | Themes named after drops that fall into the stream: water, dew, milk, coffee, latte, fire, dawn, matcha, washi, sakura, salt... |
+
+## FAQ
+
+**"Claude Opus is smarter than Jev. Why ask Jev?"**
+Jev does not replace Claude and never writes code. It is an independent checkpoint, like a smoke detector next to a chef. Three reasons it is a separate model:
+1. **A model should not grade its own homework.** Claude saying "done" and Claude checking "am I done?" share the same blind spots.
+2. **Speed and cost.** Asking Opus to re-read every turn would take 10–60 s and eat your plan quota. Jev answers in ~0.5 s for about $0.0001, and returns a *calibrated* confidence score, not an opinion.
+3. **Typed answers.** Jev answers precise yes/no questions ("tests run after the last change?"), which is exactly what an automatic gate needs.
+
+**"Does it stop me from using auto mode?"**
+No, it is the opposite. Hooks run in every permission mode, auto and bypass included. The Stop check never asks you anything. The shell guard is what makes auto mode *safer*: dangerous commands are caught before they run, the rest goes through untouched.
+
+**"T3 Code already tracks tasks."**
+T3 Code is an interface: it shows the agent's work nicely. It does not verify anything. Misogi runs alongside it (and alongside the terminal, Cursor, anything that drives Claude Code, Codex or Kimi) and adds the verification, the quotas and the shell guard.
+
+**"I don't want to combine 50 tools."**
+One install, one window: session status, plan quotas, what guides your agent, "is it really done?", shell guard. Everything else is optional.
+
+**"Why don't I see my Claude plan percentages?"**
+Claude Code only shares its 5-hour and 7-day limits with its *status line*, which exists in the terminal (`claude`). Apps built on the Claude Agent SDK, like T3 Code, never run a status line, so the percentages only appear once you have used `claude` in a terminal after clicking *Show my Claude quotas*. Tokens burned are always shown, whatever the app. Codex limits are read from its session files and always work.
+
+**"What does it cost?"**
+Misogi is free and open source. Jev costs about $0.0001 per check. Nothing is sent without a key.
+
+## Zero telemetry
+
+Misogi sends **nothing** about you, your code or your usage to anyone: no analytics, no crash reporting, no update ping. The only outgoing request is the call to Jev (`hooks/src/jev.ts`), and only for projects where you added a key. Optional: remote sessions post to *your own* window with *your own* token. That's it, and you can check it in the code.
 
 ## Drops (themes)
 
@@ -108,6 +143,15 @@ The window never talks to your agent. Hooks write one JSON line per decision; th
 
 Requirements: Node 20+, and at least one of Claude Code, Codex or Kimi Code.
 
+The fastest way, nothing to clone:
+
+```sh
+npx misogi               # opens the window
+npx misogi install       # in your project: hooks for every agent found
+```
+
+Or the desktop app from the [Releases](https://github.com/nadsous/Misogi/releases) page (Windows, macOS, Linux, auto-updating). Or from source:
+
 ```sh
 git clone https://github.com/nadsous/Misogi && cd Misogi
 npm install
@@ -124,6 +168,8 @@ node /path/to/misogi/hooks/dist/cli.js doctor      # checks key, hooks and log i
 ```
 
 No key yet? `MISOGI_MOCK=1` gives simulated answers so you can try everything.
+
+📘 **[How to get the most out of Jev in your projects](docs/jev-guide.md)**: key, observation week, pinning, tests, shell guard, CI, remote sessions.
 
 **Claude quotas**: click *Show my Claude quotas* in the Quotas panel. Misogi adds a status line to Claude Code that records your plan limits; if you already had a status line, it is kept and still displayed.
 
@@ -170,8 +216,12 @@ Adding an agent is one adapter in `hooks/src/adapters/` (hook input → `StopCon
 - [x] Claude Code, Kimi Code, Codex adapters
 - [x] Live sidecar, quotas, session status, what guides your agent, 13 themes
 - [x] Desktop app (Tauri): docked window, tray, global shortcut, autostart, notifications
-- [ ] Shell guard before commands (destructive? secrets? `.env`?)
-- [ ] Threshold replay on past decisions, "Jev was right / wrong" labels
+- [x] Shell guard before commands (destructive? secrets? `.env`?)
+- [x] Relaunch limit, decide from the window, headless mode, remote sessions, log retention, Jev pinning
+- [x] Threshold replay on past decisions, "Jev was right / wrong" labels, measured reliability
+- [x] Ticket acceptance criteria (GitHub, GitLab, Linear) judged by Jev
+- [x] `npx misogi`, signed auto-updates
+- [ ] Signed macOS / Windows builds (see [docs/signing.md](docs/signing.md))
 - [ ] Optional Supabase sync across machines
 
 ## Credits

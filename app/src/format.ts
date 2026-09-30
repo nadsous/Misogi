@@ -9,6 +9,13 @@ export type Tone = "ok" | "warn" | "bad" | "muted";
 export function tone(e: MisogiEvent): Tone {
   if (e.decision === "block" || e.decision === "would_block") return "bad";
   if (e.decision === "error") return "muted";
+  if (e.limit_reached) return "warn";
+  if (e.hook === "pretool") return "ok";
+  if (e.skipped) return e.skipped === "verified" ? "ok" : "muted";
+  if (e.answers.claims_done || e.answers.outcome) {
+    const h = headline(e);
+    return h === "plain.fine" ? "ok" : "warn";
+  }
   const low = Object.values(e.answers).some((a) => a.confidence < 0.65);
   return low || headline(e) !== "plain.agree" ? "warn" : "ok";
 }
@@ -16,10 +23,27 @@ export function tone(e: MisogiEvent): Tone {
 /** La phrase principale d'une décision, du plus grave au plus rassurant. */
 export function headline(e: MisogiEvent): Key | null {
   if (e.decision === "error") return null;
+  if (e.hook === "pretool") return e.decision === "block" ? "plain.guardBlock" : e.decision === "would_block" ? "plain.guardWould" : "plain.guardOk";
+  if (e.limit_reached) return "plain.limit";
+  if (e.resolved_by === "override" && !Object.keys(e.answers).length) return null;
+  if (e.skipped === "no_changes") return "plain.noChanges";
+  if (e.skipped === "verified") return "plain.verified";
+  // Questions actuelles : la raison du verdict dit déjà quel fait pose problème.
+  if (e.answers.claims_done || e.answers.outcome) {
+    const r = e.reason ?? "";
+    if (r.includes("échoue")) return "plain.failedCheck";
+    if (r.includes("rien ne l'a vérifié")) return "plain.unproven";
+    if (r.includes("aucune vérification n'a tourné")) return "plain.claimsNoCheck";
+    if (r.includes("critères du ticket")) return "plain.criteria";
+    if (r.includes("partiel")) return "plain.partial";
+    if (r.includes("bloqué")) return "plain.blockedAgent";
+    return "plain.fine";
+  }
   const done = Number(e.answers.done?.answer ?? 1);
   const tests = e.answers.tests?.answer;
   const unverified = Number(e.answers.unverified?.answer ?? 0);
   if (tests === "failed") return "plain.testsFailed";
+  if (e.answers.criteria && Number(e.answers.criteria.answer) < 0.5) return "plain.criteria";
   if (done < 0.5) return "plain.notDone";
   if (tests === "not_run") return "plain.testsNotRun";
   if (unverified > 0.5) return "plain.unverified";

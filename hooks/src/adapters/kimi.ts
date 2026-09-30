@@ -8,8 +8,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { emptyTurn, OUTPUT_TAIL_CHARS, parseArgs, readJsonlTail, str, tail, TEST_COMMAND, toProjectPath, type StopAdapter, type Turn } from "./common.js";
+import { isAbsolute, join } from "node:path";
+import { emptyTurn, parseArgs, parseTime, readJsonlTail, shellCommand, str, toProjectPath, TurnTracker, type StopAdapter, type Turn } from "./common.js";
+import { projectRoot } from "../platform.js";
 
 export const WIRE_PROTOCOLS = ["1.8"];
 
@@ -38,7 +39,7 @@ export function kimiWirePath(cwd: string, sessionId: string, home = kimiHome()):
 export const kimi: StopAdapter = {
   agent: "kimi",
   context(input) {
-    const cwd = str(input.cwd) || process.cwd();
+    const cwd = projectRoot(str(input.cwd) || process.cwd());
     const session = str(input.session_id);
     const wire = session ? kimiWirePath(cwd, session) : null;
     const turn = wire ? turnFromWire(readJsonlTail<WireLine>(wire), cwd) : emptyTurn();
@@ -51,22 +52,32 @@ export const kimi: StopAdapter = {
       lastTest: turn.lastTest,
       finalMessage: turn.lastAssistantText,
       alreadyContinued: input.stop_hook_active === true,
+      checks: turn.checks,
+      editCount: turn.editCount,
+      startedAt: turn.startedAt,
     };
   },
   // Kimi : code 2 = bloquer, stderr = message ajouté pour l'agent.
   block(reason) {
     return { stderr: reason, exitCode: 2 };
   },
+  // Kimi : outil « Shell » ; code 2 = refuser, stderr = raison.
+  tool: (input) => shellCommand(input, /^(Shell|Bash)$/),
+  deny(reason) {
+    return { stderr: reason, exitCode: 2 };
+  },
 };
 
 export interface WireLine {
   type?: string;
+  timestamp?: number;
   protocol_version?: string;
   message?: { type?: string; payload?: Record<string, unknown> };
 }
 
 export function turnFromWire(lines: WireLine[], cwd: string): Turn {
-  const msgs = lines.map((l) => l.message).filter((m): m is NonNullable<WireLine["message"]> => !!m?.type);
+  const withMsg = lines.filter((l) => !!l.message?.type);
+  const msgs = withMsg.map((l) => l.message!);
   let start = -1;
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i]!.type === "TurnBegin") {
@@ -77,32 +88,35 @@ export function turnFromWire(lines: WireLine[], cwd: string): Turn {
   const turn = emptyTurn();
   if (start === -1) return turn;
   turn.request = userInputText(msgs[start]!.payload?.user_input);
+  turn.startedAt = parseTime(withMsg[start]!.timestamp);
 
   const files = new Set<string>();
-  const tests = new Map<string, string>();
+  const tracker = new TurnTracker();
   let text = "";
-  for (const m of msgs.slice(start + 1)) {
+  msgs.slice(start + 1).forEach((m, i) => {
     const p = m.payload ?? {};
     if (m.type === "StepBegin") text = "";
     if (m.type === "ContentPart" && p.type === "text") text += str(p.text);
     if (m.type === "ToolCall") {
       const fn = (p.function ?? {}) as { name?: string; arguments?: unknown };
       const args = parseArgs(fn.arguments);
-      if (fn.name && EDIT_TOOLS.has(fn.name) && str(args.path)) files.add(toProjectPath(str(args.path), cwd));
-      if (fn.name && SHELL_TOOLS.has(fn.name) && TEST_COMMAND.test(str(args.command))) tests.set(str(p.id), str(args.command));
+      if (fn.name && EDIT_TOOLS.has(fn.name)) {
+        const rel = str(args.path) ? toProjectPath(str(args.path), cwd) : "";
+        if (rel && !isAbsolute(rel)) {
+          files.add(rel);
+          tracker.edit();
+        }
+      }
+      if (fn.name && SHELL_TOOLS.has(fn.name)) tracker.shell(str(p.id), str(args.command));
     }
-    if (m.type === "ToolResult" && tests.has(str(p.tool_call_id))) {
+    if (m.type === "ToolResult") {
       const rv = (p.return_value ?? {}) as { is_error?: boolean; output?: unknown; message?: string };
-      turn.lastTest = {
-        command: tests.get(str(p.tool_call_id))!,
-        failed: rv.is_error === true,
-        output: tail(outputText(rv.output) || str(rv.message), OUTPUT_TAIL_CHARS),
-      };
+      tracker.result(str(p.tool_call_id), rv.is_error === true, outputText(rv.output) || str(rv.message), parseTime(withMsg[start + 1 + i]!.timestamp));
     }
-  }
+  });
   turn.lastAssistantText = text.trim();
   turn.filesModified = [...files];
-  return turn;
+  return tracker.finish(turn);
 }
 
 function userInputText(v: unknown): string {

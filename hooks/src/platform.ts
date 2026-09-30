@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import type { Agent } from "./types.js";
 
 export const AGENT_BINARIES: Record<Agent, string> = { claude: "claude", codex: "codex", kimi: "kimi" };
@@ -29,6 +29,33 @@ export function which(bin: string): string | null {
 
 export function detectAgents(): Record<Agent, string | null> {
   return { claude: which("claude"), codex: which("codex"), kimi: which("kimi") };
+}
+
+const rootCache = new Map<string, string>();
+
+/**
+ * Racine du projet pour un dossier de travail : l'agent peut avoir fait `cd` dans un sous-dossier
+ * (ex. app/src-tauri), le projet reste celui qui contient `.misogi/config.json`, sinon `.git`.
+ */
+export function projectRoot(cwd: string): string {
+  if (!cwd) return cwd;
+  const hit = rootCache.get(cwd);
+  if (hit) return hit;
+  let dir = resolve(cwd);
+  let gitRoot: string | null = null;
+  for (let i = 0; i < 25; i++) {
+    if (existsSync(join(dir, ".misogi", "config.json"))) {
+      rootCache.set(cwd, dir);
+      return dir;
+    }
+    if (!gitRoot && existsSync(join(dir, ".git"))) gitRoot = dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const root = gitRoot ?? cwd;
+  rootCache.set(cwd, root);
+  return root;
 }
 
 /** Chemins en barres obliques : acceptés par Node, cmd, PowerShell et Git Bash (utilisé par Kimi sous Windows). */

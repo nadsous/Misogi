@@ -23,6 +23,50 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
           {e.model} · {t("latency")} {e.latency_ms} ms · {e.input_tokens} {t("tokens")} · {e.state_level} · {e.project}
         </p>
 
+        {e.summary && (
+          <Section title={t("summary.title")}>
+            <dl className="space-y-2 text-xs">
+              <div>
+                <dt className="text-2xs text-faint">{t("summary.request")}</dt>
+                <dd className="whitespace-pre-wrap">{e.summary.request || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-2xs text-faint">{t("summary.files")}</dt>
+                <dd className="font-mono text-2xs">{e.summary.files.length ? e.summary.files.join(", ") : t("summary.none")}</dd>
+              </div>
+              {!!e.summary.checks?.length && (
+                <div>
+                  <dt className="text-2xs text-faint">{t("summary.checks")}</dt>
+                  <dd className="space-y-0.5 font-mono text-2xs">
+                    {e.summary.checks.map((c, i) => (
+                      <p key={i} className="truncate">
+                        <span className={c.failed ? "text-bad" : "text-ok"}>{c.failed ? "✗" : "✓"}</span> {c.command}
+                        {!c.after_last_edit && <span className="text-faint"> · avant la dernière modification</span>}
+                      </p>
+                    ))}
+                  </dd>
+                </div>
+              )}
+              <div>
+                <dt className="text-2xs text-faint">{t("summary.test")}</dt>
+                <dd className="font-mono text-2xs">
+                  {e.summary.test ? (
+                    <>
+                      {e.summary.test.command} · <span className={e.summary.test.failed ? "text-bad" : "text-ok"}>{t(e.summary.test.failed ? "summary.failed" : "summary.passed")}</span>
+                    </>
+                  ) : (
+                    t("summary.noTest")
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-2xs text-faint">{t("summary.final")}</dt>
+                <dd className="whitespace-pre-wrap text-muted">{e.summary.final || "—"}</dd>
+              </div>
+            </dl>
+          </Section>
+        )}
+
         <Section title={t("probabilities")}>
           {Object.entries(e.answers).map(([k, a]) => (
             <div key={k} className="mb-2">

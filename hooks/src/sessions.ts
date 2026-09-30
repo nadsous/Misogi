@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseJsonl, readTail, str } from "./adapters/common.js";
-import { agentHome } from "./platform.js";
+import { agentHome, projectRoot } from "./platform.js";
 import type { Agent } from "./types.js";
 
 export type SessionState = "working" | "waiting" | "done";
@@ -83,7 +83,7 @@ function claudeSessions(maxAgeMs: number, now: number): SessionStatus[] {
   return recentFiles(files, maxAgeMs, now).map(({ file, mtime }) => {
     const lines = parseJsonl<ClaudeLine>(readTail(file, TAIL_BYTES));
     const cwd = [...lines].reverse().find((l) => l.cwd)?.cwd ?? "";
-    return { agent: "claude", session: file.replace(/^.*[\\/]/, "").replace(/\.jsonl$/, ""), project: cwd, status: claudeState(lines, now - mtime), updatedAt: mtime, file };
+    return { agent: "claude", session: file.replace(/^.*[\\/]/, "").replace(/\.jsonl$/, ""), project: cwd ? projectRoot(cwd) : cwd, status: claudeState(lines, now - mtime), updatedAt: mtime, file };
   });
 }
 
@@ -177,7 +177,7 @@ function codexSessions(maxAgeMs: number, now: number): SessionStatus[] {
     return {
       agent: "codex",
       session: str(meta.id) || file.replace(/^.*[\\/]/, ""),
-      project: str(meta.cwd),
+      project: str(meta.cwd) ? projectRoot(str(meta.cwd)) : "",
       status: codexState(parseJsonl<RolloutLine>(readTail(file, TAIL_BYTES)), now - mtime),
       updatedAt: mtime,
       file,

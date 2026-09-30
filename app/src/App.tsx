@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_LABEL, AGENTS, api, normPath, useStream, type Agent, type MisogiEvent, type Project } from "./api";
+import { AGENT_LABEL, AGENTS, api, normPath, useStream, type Agent, type MisogiEvent, type Project, type ProjectActivity } from "./api";
 import { Detail } from "./components/Detail";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { eventKey, Feed } from "./components/Feed";
 import { Guides } from "./components/Guides";
+import { PendingBanner } from "./components/PendingBanner";
 import { Quotas } from "./components/Quotas";
 import { Logo, JevIcon } from "./components/Brand";
 import { Palette, type Command } from "./components/Palette";
@@ -57,17 +59,23 @@ export function App() {
 
   // La goutte qui arrive : la décision reçue en direct à l'instant.
   const [arriving, setArriving] = useState<string | null>(null);
+  // Annonce pour les lecteurs d'écran : la dernière décision, en une phrase.
+  const [announce, setAnnounce] = useState("");
   const onDecision = useCallback(
     (e: MisogiEvent) => {
       setArriving(eventKey(e));
       setTimeout(() => setArriving((k) => (k === eventKey(e) ? null : k)), 2500);
-      if (e.decision !== "would_block" && e.decision !== "block") return;
       const h = headline(e);
-      void notify(DICTS[lang].notifyTitle, `${e.project.split(/[\\/]/).pop()} · ${h ? DICTS[lang][h] : e.reason ?? ""}`);
+      const text = h ? DICTS[lang][h] : e.reason ?? "";
+      const project = e.project.split(/[\\/]/).pop();
+      setAnnounce(`${DICTS[lang]["a11y.newDecision"]} · ${project} · ${text}`);
+      if (e.limit_reached) return void notify(DICTS[lang]["notify.limit"], `${project} · ${text}`);
+      if (e.decision !== "would_block" && e.decision !== "block") return;
+      void notify(e.hook === "pretool" ? DICTS[lang]["notify.guard"] : DICTS[lang].notifyTitle, `${project} · ${e.subject ?? text}`);
     },
     [lang],
   );
-  const { events, sessions, online } = useStream(onDecision);
+  const { events, sessions, online, pending, busy } = useStream(onDecision);
 
   const refresh = useCallback(() => {
     api.projects().then(setProjects).catch(() => {});
@@ -125,6 +133,28 @@ export function App() {
     return new Set(projects.filter((p) => ["would_block", "block"].includes(last.get(normPath(p.path))?.decision ?? "")).map((p) => p.path));
   }, [events, projects, home]);
 
+  // Pastilles autour des avatars : IA qui travaille / a fini, Jev qui juge / a jugé.
+  const activity = useMemo(() => {
+    const now = Date.now();
+    const out = new Map<string, ProjectActivity>();
+    const get = (path: string) => {
+      const k = normPath(path, home);
+      if (!out.has(k)) out.set(k, {});
+      return out.get(k)!;
+    };
+    for (const s of [...sessions].sort((a, b) => a.updatedAt - b.updatedAt)) {
+      if (!s.project) continue;
+      const a = get(s.project);
+      if (s.status !== "done") a.working = s.agent;
+      else if (now - s.updatedAt < 2 * 3600_000) a.done = s.agent;
+    }
+    for (const a of out.values()) if (a.working) delete a.done;
+    for (const b of busy) get(b.project).jevBusy = true;
+    for (const e of events) if (now - Date.parse(e.ts) < 30 * 60_000) get(e.project).jevDone = true;
+    for (const a of out.values()) if (a.jevBusy) delete a.jevDone;
+    return out;
+  }, [sessions, busy, events, home]);
+
   const lastBySession = useMemo(() => new Map(events.map((e) => [e.session, e])), [events]);
 
   const collapse = useCallback((on: boolean, auto = false) => {
@@ -133,16 +163,30 @@ export function App() {
     void setCollapsed(on);
   }, []);
 
-  // Dans Tauri : se déploie quand un agent démarre une session, repasse en bande quand tout est calme.
+  // Repli automatique en bande quand tout est calme : une option, désactivée par défaut
+  // (une bande vide ressemblait à une fenêtre figée).
+  const [autoCollapse, setAutoCollapse] = useState(() => localStorage.getItem("misogi.autocollapse") === "on");
   useEffect(() => {
-    if (!inTauri) return;
+    const onChange = () => setAutoCollapse(localStorage.getItem("misogi.autocollapse") === "on");
+    addEventListener("misogi:autocollapse", onChange);
+    return () => removeEventListener("misogi:autocollapse", onChange);
+  }, []);
+
+  // Au démarrage, on part toujours déployé (la fenêtre a pu être fermée en mode bande).
+  useEffect(() => {
+    void setCollapsed(false);
+  }, []);
+
+  // Dans Tauri, si l'option est active : se déploie quand un agent démarre, repasse en bande quand tout est calme.
+  useEffect(() => {
+    if (!inTauri || !autoCollapse) return;
     const busy = sessions.some((s) => s.status !== "done");
     if (busy && collapsed && autoCollapsed.current) collapse(false);
     if (!busy && !collapsed) {
       const id = setTimeout(() => collapse(true, true), CALM_MS);
       return () => clearTimeout(id);
     }
-  }, [sessions, collapsed, collapse]);
+  }, [sessions, collapsed, collapse, autoCollapse]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -182,8 +226,9 @@ export function App() {
   return (
     <LangContext.Provider value={lang}>
       <div className="flex h-full">
-        <Rail projects={ordered} selected={selected} onSelect={(p) => (setSelected(p), setView({ kind: "feed" }))} attention={attention} onAdd={() => setView({ kind: "projects" })} />
+        <Rail projects={ordered} selected={selected} onSelect={(p) => (setSelected(p), setView({ kind: "feed" }))} attention={attention} activity={(p) => activity.get(normPath(p)) ?? {}} onAdd={() => setView({ kind: "projects" })} />
         <main className="flex min-w-0 flex-1 flex-col">
+          <ErrorBoundary key={view.kind} onReset={() => setView({ kind: "feed" })} label={{ title: d["crash.title"], back: d["crash.back"] }}>
           {view.kind === "detail" ? (
             <Detail event={view.event} onClose={() => setView({ kind: "feed" })} />
           ) : view.kind === "guides" ? (
@@ -200,6 +245,7 @@ export function App() {
           ) : view.kind === "settings" ? (
             <Settings
               project={selectedProject}
+              seenModel={[...events].reverse().find((e) => e.model && e.model !== "mock" && e.model !== "jev-latest" && (!selected || normPath(e.project, home) === normPath(selected)))?.model}
               agentsFound={agentsFound}
               lang={lang}
               theme={theme}
@@ -237,6 +283,7 @@ export function App() {
                 </span>
               </header>
               {!online && <p className="border-b border-line bg-bad/10 px-3 py-1.5 text-2xs text-bad">{d.offline}</p>}
+              <PendingBanner pending={pending} />
               <Quotas />
               <Sessions sessions={visibleSessions} />
               <div className="flex-1 overflow-y-auto">
@@ -244,9 +291,13 @@ export function App() {
               </div>
             </>
           )}
+          </ErrorBoundary>
         </main>
       </div>
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
+      <p className="sr-only" aria-live="polite" role="status">
+        {announce}
+      </p>
     </LangContext.Provider>
   );
 }

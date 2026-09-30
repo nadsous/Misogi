@@ -1,17 +1,26 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Agent, ProjectConfig } from "./types.js";
+import type { Agent, GlobalSettings, ProjectConfig } from "./types.js";
 
 export const DEFAULT_CONFIG: ProjectConfig = {
   mode: "shadow",
   profile: "default",
-  threshold: 0.5,
+  // Probabilité que le message annonce « fini » au-delà de laquelle un « fini » sans preuve est signalé.
+  threshold: 0.7,
   state_level: "reduced",
   log_state: false,
   model: "jev-latest",
   timeout_ms: 1500,
+  max_relaunches: 2,
+  ask_before_relaunch: true,
+  ask_timeout_ms: 12_000,
+  max_state_tokens: 30_000,
+  guard: { enabled: false, mode: "shadow", threshold: 0.7 },
+  tickets: true,
 };
+
+export const DEFAULT_SETTINGS: GlobalSettings = { retention_days: 30 };
 
 /** Dossier des données Misogi (journal, etc.). */
 export function misogiHome(): string {
@@ -31,6 +40,9 @@ export function isTracked(projectDir: string): boolean {
 export function loadProjectConfig(projectDir: string): ProjectConfig {
   try {
     const raw = JSON.parse(readFileSync(projectConfigPath(projectDir), "utf8"));
+    // Configs d'avant la v2 : le seuil portait sur « tâche terminée » (0,5 par défaut) ; il porte maintenant
+    // sur « annonce fini » (0,7). On reprend le nouveau défaut si l'ancien n'avait pas été changé.
+    if (raw.config_version !== 2 && raw.threshold === 0.5) delete raw.threshold;
     return sanitize({ ...DEFAULT_CONFIG, ...raw });
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -40,13 +52,26 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
 export function saveProjectConfig(projectDir: string, patch: Partial<ProjectConfig>): ProjectConfig {
   const next = sanitize({ ...loadProjectConfig(projectDir), ...patch });
   mkdirSync(join(projectDir, ".misogi"), { recursive: true });
-  writeFileSync(projectConfigPath(projectDir), JSON.stringify(next, null, 2) + "\n", "utf8");
+  writeFileSync(projectConfigPath(projectDir), JSON.stringify({ config_version: 2, ...next }, null, 2) + "\n", "utf8");
   return next;
 }
 
+const num = (v: unknown, min: number, max: number, fallback: number): number => (typeof v === "number" && v >= min && v <= max ? v : fallback);
+
 function sanitize(c: ProjectConfig): ProjectConfig {
   const profile = c.profile === "client" ? "client" : "default";
+  const g = (c.guard ?? {}) as Partial<ProjectConfig["guard"]>;
   return {
+    max_relaunches: Math.round(num(c.max_relaunches, 0, 10, DEFAULT_CONFIG.max_relaunches)),
+    ask_before_relaunch: c.ask_before_relaunch !== false,
+    tickets: c.tickets !== false,
+    ask_timeout_ms: num(c.ask_timeout_ms, 2_000, 60_000, DEFAULT_CONFIG.ask_timeout_ms),
+    max_state_tokens: num(c.max_state_tokens, 1_000, 32_000, DEFAULT_CONFIG.max_state_tokens),
+    guard: {
+      enabled: g.enabled === true,
+      mode: g.mode === "active" ? "active" : "shadow",
+      threshold: num(g.threshold, 0.1, 0.99, DEFAULT_CONFIG.guard.threshold),
+    },
     mode: c.mode === "active" ? "active" : "shadow",
     profile,
     threshold: typeof c.threshold === "number" && c.threshold >= 0 && c.threshold <= 1 ? c.threshold : DEFAULT_CONFIG.threshold,
@@ -59,6 +84,23 @@ function sanitize(c: ProjectConfig): ProjectConfig {
 
 export function mockEnabled(): boolean {
   return process.env.MISOGI_MOCK === "1" || process.env.MISOGI_MOCK === "true";
+}
+
+export function loadSettings(): GlobalSettings {
+  try {
+    const raw = JSON.parse(readFileSync(join(misogiHome(), "settings.json"), "utf8")) as Partial<GlobalSettings>;
+    return { retention_days: Math.round(num(raw.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days)) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+export function saveSettings(patch: Partial<GlobalSettings>): GlobalSettings {
+  const next = { ...loadSettings(), ...patch };
+  next.retention_days = Math.round(num(next.retention_days, 0, 3650, DEFAULT_SETTINGS.retention_days));
+  mkdirSync(misogiHome(), { recursive: true });
+  writeFileSync(join(misogiHome(), "settings.json"), JSON.stringify(next, null, 2) + "\n", "utf8");
+  return next;
 }
 
 // --- Registre des projets suivis (~/.misogi/projects.json), pour « Tout désinstaller » et la colonne des projets.
@@ -90,6 +132,39 @@ export function updateProject(path: string, agents: (current: Agent[]) => Agent[
   else if (i !== -1) list.splice(i, 1);
   mkdirSync(misogiHome(), { recursive: true });
   writeFileSync(registryPath(), JSON.stringify(list, null, 2) + "\n", "utf8");
+}
+
+/** Retire un projet du registre (sans toucher à ses fichiers). */
+export function forgetProject(path: string): void {
+  updateProject(path, () => []);
+}
+
+// --- Projets masqués : retirés de Misogi, ils ne réapparaissent pas via leurs sessions ou le journal.
+
+function hiddenPath(): string {
+  return join(misogiHome(), "hidden-projects.json");
+}
+
+export function hiddenProjects(): string[] {
+  try {
+    const list = JSON.parse(readFileSync(hiddenPath(), "utf8"));
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export function hideProject(path: string): void {
+  const list = hiddenProjects().filter((p) => !samePath(p, path));
+  mkdirSync(misogiHome(), { recursive: true });
+  writeFileSync(hiddenPath(), JSON.stringify([...list, path], null, 2) + "\n", "utf8");
+}
+
+/** Un projet ré-ajouté à la main redevient visible. */
+export function unhideProject(path: string): void {
+  const list = hiddenProjects();
+  const next = list.filter((p) => !samePath(p, path));
+  if (next.length !== list.length) writeFileSync(hiddenPath(), JSON.stringify(next, null, 2) + "\n", "utf8");
 }
 
 export function samePath(a: string, b: string): boolean {

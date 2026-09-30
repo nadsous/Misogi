@@ -4,12 +4,13 @@
 // last_assistant_message. Codex n'était pas installé pendant le développement : entrée non observée en réel,
 // le transcript (rollout JSONL) est lu d'après des sessions Codex 0.105.
 
-import { emptyTurn, OUTPUT_TAIL_CHARS, parseArgs, readJsonlTail, str, tail, TEST_COMMAND, toProjectPath, type StopAdapter, type Turn } from "./common.js";
+import { denyJson, emptyTurn, parseArgs, parseTime, readJsonlTail, shellCommand, str, toProjectPath, TurnTracker, type StopAdapter, type Turn } from "./common.js";
+import { projectRoot } from "../platform.js";
 
 export const codex: StopAdapter = {
   agent: "codex",
   context(input) {
-    const cwd = str(input.cwd) || process.cwd();
+    const cwd = projectRoot(str(input.cwd) || process.cwd());
     const transcript = str(input.transcript_path);
     const turn = transcript ? turnFromRollout(readJsonlTail<RolloutLine>(transcript), cwd) : emptyTurn();
     return {
@@ -21,15 +22,21 @@ export const codex: StopAdapter = {
       lastTest: turn.lastTest,
       finalMessage: str(input.last_assistant_message) || turn.lastAssistantText,
       alreadyContinued: input.stop_hook_active === true,
+      checks: turn.checks,
+      editCount: turn.editCount,
+      startedAt: turn.startedAt,
     };
   },
   block(reason) {
     return { stdout: JSON.stringify({ decision: "block", reason }), exitCode: 0 };
   },
+  tool: (input) => shellCommand(input, /^(Bash|shell|shell_command|exec_command|local_shell)$/),
+  deny: denyJson,
 };
 
 export interface RolloutLine {
   type?: string;
+  timestamp?: string;
   payload?: Record<string, unknown>;
 }
 
@@ -46,29 +53,30 @@ export function turnFromRollout(lines: RolloutLine[], cwd: string): Turn {
   const turn = emptyTurn();
   if (start === -1) return turn;
   turn.request = requestText(str(lines[start]!.payload?.message));
+  turn.startedAt = parseTime(lines[start]!.timestamp);
 
   const files = new Set<string>();
-  const tests = new Map<string, string>();
+  const tracker = new TurnTracker();
   for (const l of lines.slice(start + 1)) {
     const p = l.payload ?? {};
     if (l.type === "event_msg" && p.type === "agent_message") turn.lastAssistantText = str(p.message);
     if (l.type !== "response_item") continue;
     if (p.type === "custom_tool_call" && p.name === "apply_patch") {
       for (const m of str(p.input).matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)) files.add(toProjectPath(m[1]!.trim(), cwd));
+      tracker.edit();
     }
     if (p.type === "function_call" && SHELL_TOOLS.has(str(p.name))) {
       const args = parseArgs(p.arguments);
-      const command = Array.isArray(args.command) ? args.command.join(" ") : str(args.command || args.cmd);
-      if (TEST_COMMAND.test(command)) tests.set(str(p.call_id), command);
+      tracker.shell(str(p.call_id), Array.isArray(args.command) ? args.command.join(" ") : str(args.command || args.cmd));
     }
-    if (p.type === "function_call_output" && tests.has(str(p.call_id))) {
+    if (p.type === "function_call_output") {
       const out = outputText(p.output);
       const code = /Exit code: (-?\d+)/.exec(out)?.[1] ?? /"exit_code":\s*(-?\d+)/.exec(out)?.[1];
-      turn.lastTest = { command: tests.get(str(p.call_id))!, failed: code !== undefined && code !== "0", output: tail(out, OUTPUT_TAIL_CHARS) };
+      tracker.result(str(p.call_id), code !== undefined && code !== "0", out, parseTime(l.timestamp));
     }
   }
   turn.filesModified = [...files];
-  return turn;
+  return tracker.finish(turn);
 }
 
 /** Les extensions IDE préfixent la demande par du contexte ; on garde la demande elle-même. */
