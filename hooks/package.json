@@ -1,0 +1,28 @@
+{
+  "name": "misogi-hooks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "misogi": "dist/cli.js",
+    "misogi-hook": "dist/hook.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "serve": "node dist/cli.js serve"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "^2.1.0",
+    "chokidar": "^5.0.0",
+    "smol-toml": "^1.9.0"
+  }
+}

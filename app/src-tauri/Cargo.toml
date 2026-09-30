@@ -1,0 +1,24 @@
+[package]
+name = "misogi"
+version = "0.1.0"
+description = "Fenêtre sidecar qui affiche les décisions de Jev pendant que ton agent code"
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "misogi_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["tray-icon"] }
+tauri-plugin-notification = "2.5"
+tauri-plugin-global-shortcut = "2.4"
+tauri-plugin-autostart = "2.6"
+tauri-plugin-window-state = "2.5"
+tauri-plugin-single-instance = "2.5"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

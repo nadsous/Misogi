@@ -1,0 +1,25 @@
+{
+  "name": "misogi",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "hooks",
+    "app"
+  ],
+  "scripts": {
+    "build": "npm run build -w hooks && npm run build -w app",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev": "npm run build -w hooks && node hooks/dist/cli.js serve & npm run dev -w app",
+    "serve": "node hooks/dist/cli.js serve",
+    "smoke": "node scripts/smoke.mjs",
+    "tauri": "npm run tauri -w app"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

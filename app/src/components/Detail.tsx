@@ -1,0 +1,78 @@
+import type { MisogiEvent } from "../api";
+import { pct } from "../format";
+import { useT } from "../i18n";
+import { AgentIcon } from "./Brand";
+
+/** Détail d'une décision : state exact envoyé, probabilités par option, JSON brut. */
+export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () => void }) {
+  const t = useT();
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+        <button onClick={onClose} className="text-xs text-muted hover:text-fg">
+          ← {t("back")}
+        </button>
+        <span className="ml-auto flex items-center gap-1.5 text-2xs text-faint">
+          <AgentIcon agent={e.agent} />
+          <span className="font-mono">{new Date(e.ts).toLocaleString()}</span>
+        </span>
+      </header>
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+        {e.reason && <p className="text-[13px] leading-snug">{e.reason}</p>}
+        <p className="font-mono text-2xs text-faint">
+          {e.model} · {t("latency")} {e.latency_ms} ms · {e.input_tokens} {t("tokens")} · {e.state_level} · {e.project}
+        </p>
+
+        <Section title={t("probabilities")}>
+          {Object.entries(e.answers).map(([k, a]) => (
+            <div key={k} className="mb-2">
+              <div className="flex justify-between text-xs">
+                <span className="font-mono text-muted">{k}</span>
+                <span>
+                  {typeof a.answer === "number" ? pct(a.answer) : a.answer} <span className="text-faint">· {t("confidence")} {pct(a.confidence)}</span>
+                </span>
+              </div>
+              {a.probabilities && (
+                <ul className="mt-1 space-y-0.5">
+                  {Object.entries(a.probabilities)
+                    .sort((x, y) => y[1] - x[1])
+                    .map(([opt, p]) => (
+                      <li key={opt} className="flex items-center gap-2 text-2xs">
+                        <span className="w-20 truncate font-mono text-faint">{opt}</span>
+                        <span className="h-1 flex-1 rounded-full bg-line">
+                          <span className="block h-full rounded-full bg-accent" style={{ width: `${p * 100}%` }} />
+                        </span>
+                        <span className="w-9 text-right font-mono text-faint">{pct(p)}</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </Section>
+
+        <Section title={t("sentState")}>
+          {e.state !== undefined ? <Code value={e.state} /> : <p className="text-2xs leading-relaxed text-faint">{t("stateNotLogged")}</p>}
+          <p className="mt-1 truncate font-mono text-2xs text-faint">sha256 {e.state_hash}</p>
+        </Section>
+
+        <Section title={t("raw")}>
+          <Code value={e} />
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1.5 text-2xs font-medium tracking-wider text-faint uppercase">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+export function Code({ value }: { value: unknown }) {
+  return <pre className="overflow-x-auto rounded-md border border-line bg-surface p-2 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-muted">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</pre>;
+}

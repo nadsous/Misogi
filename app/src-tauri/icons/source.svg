@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="170 140 910 1080" width="1024" height="1024">
+  <defs>
+    <linearGradient id="m-body" x1="0.2" y1="0" x2="0.55" y2="1">
+      <stop offset="0" style="stop-color:#eaf8fc"/>
+      <stop offset="0.55" style="stop-color:#5aa9c2" stop-opacity="0.8"/>
+      <stop offset="1" style="stop-color:#eaf8fc" stop-opacity="0.9"/>
+    </linearGradient>
+    <radialGradient id="m-depth" cx="0.5" cy="0.36" r="0.55">
+      <stop offset="0" style="stop-color:#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.6" style="stop-color:#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="m-rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" style="stop-color:#ffffff" stop-opacity="0.95"/>
+      <stop offset="0.5" style="stop-color:#ffffff" stop-opacity="0.25"/>
+      <stop offset="1" style="stop-color:#ffffff" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="m-spec" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#ffffff" stop-opacity="0.95"/>
+      <stop offset="1" style="stop-color:#ffffff" stop-opacity="0.15"/>
+    </linearGradient>
+    <filter id="m-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" style="flood-color:#5aa9c2" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g filter="url(#m-shadow)">
+    <path d="M625 180C592 262 470 380 380 480C268 605 212 760 218 880C222 990 330 1110 548 1172C445 1118 360 1000 342 860C326 730 356 612 418 573C470 558 520 640 578 740C598 775 612 790 625 790C638 790 652 775 672 740C730 640 780 558 832 573C894 612 924 730 908 860C890 1000 805 1118 702 1172C920 1110 1028 990 1032 880C1038 760 982 605 870 480C780 380 658 262 625 180Z" fill="url(#m-body)" fill-opacity="0.92"/>
+  </g>
+  <path d="M625 180C592 262 470 380 380 480C268 605 212 760 218 880C222 990 330 1110 548 1172C445 1118 360 1000 342 860C326 730 356 612 418 573C470 558 520 640 578 740C598 775 612 790 625 790C638 790 652 775 672 740C730 640 780 558 832 573C894 612 924 730 908 860C890 1000 805 1118 702 1172C920 1110 1028 990 1032 880C1038 760 982 605 870 480C780 380 658 262 625 180Z" fill="url(#m-depth)"/>
+  <path d="M625 180C592 262 470 380 380 480C268 605 212 760 218 880C222 990 330 1110 548 1172C445 1118 360 1000 342 860C326 730 356 612 418 573C470 558 520 640 578 740C598 775 612 790 625 790C638 790 652 775 672 740C730 640 780 558 832 573C894 612 924 730 908 860C890 1000 805 1118 702 1172C920 1110 1028 990 1032 880C1038 760 982 605 870 480C780 380 658 262 625 180Z" fill="none" stroke="url(#m-rim)" stroke-width="7"/>
+  <path d="M625 180C592 262 470 380 380 480C268 605 212 760 218 880C222 990 330 1110 548 1172C445 1118 360 1000 342 860C326 730 356 612 418 573C470 558 520 640 578 740C598 775 612 790 625 790C638 790 652 775 672 740C730 640 780 558 832 573C894 612 924 730 908 860C890 1000 805 1118 702 1172C920 1110 1028 990 1032 880C1038 760 982 605 870 480C780 380 658 262 625 180Z" fill="none" style="stroke:#5aa9c2" stroke-opacity="0.55" stroke-width="1.5"/>
+  <path d="M612 214C590 292 526 372 474 432C520 392 582 312 612 214Z" fill="url(#m-spec)"/>
+  <path d="M318 660C286 750 290 880 350 985C322 900 312 770 318 660Z" fill="url(#m-spec)"/>
+  <path d="M932 660C964 750 960 880 900 985C928 900 938 770 932 660Z" fill="url(#m-spec)"/>
+  <path d="M560 300C548 330 530 352 512 372C534 356 552 336 560 300Z" style="fill:#ffffff" fill-opacity="0.6"/>
+  <path d="M846 520C872 552 890 590 900 628C884 596 866 566 846 520Z" style="fill:#ffffff" fill-opacity="0.6"/>
+</svg>

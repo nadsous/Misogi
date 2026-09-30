@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/*
+ * Design system Misogi : toutes les couleurs, tailles et polices passent par ces tokens.
+ * Une seule couleur d'accent par thème. Les valeurs viennent des thèmes « gouttes » (src/themes.ts).
+ */
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+
+  /* Tailles relevées pour la lisibilité dans une fenêtre étroite. */
+  --text-2xs: 0.78rem;
+  --text-2xs--line-height: 1.15rem;
+  --text-xs: 0.86rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.95rem;
+  --text-sm--line-height: 1.35rem;
+
+  --animate-arrive: arrive 1200ms ease-out;
+  @keyframes arrive {
+    0%,
+    45% {
+      background-color: color-mix(in oklab, var(--accent) 16%, transparent);
+    }
+  }
+
+  /* Le ruisseau : l'eau coule le long du fil des décisions. */
+  --animate-flow: flow 1.6s linear infinite;
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -28;
+    }
+  }
+
+  /* Une goutte descend le courant et arrive sur la nouvelle décision. */
+  --animate-drop: drop 700ms cubic-bezier(0.55, 0, 0.85, 0.4) both;
+  @keyframes drop {
+    from {
+      transform: translateY(-90px) scale(0.7);
+      opacity: 0;
+    }
+    30% {
+      opacity: 1;
+    }
+    to {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+  }
+
+  /* Les ronds dans l'eau, à l'arrivée. */
+  --animate-ripple: ripple 900ms ease-out 650ms both;
+  @keyframes ripple {
+    from {
+      transform: scale(0.3);
+      opacity: 0.9;
+    }
+    to {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+
+  /* Petite vague pour une session qui travaille. */
+  --animate-wave: wave 1.4s linear infinite;
+  @keyframes wave {
+    to {
+      transform: translateX(-12px);
+    }
+  }
+}
+
+/* Thème « Eau » pour le premier affichage ; les autres gouttes sont posées depuis src/themes.ts. */
+:root {
+  --bg: #091015;
+  --surface: #0e171d;
+  --raised: #142129;
+  --line: #1f2f39;
+  --fg: #e6f1f5;
+  --muted: #93a9b3;
+  --faint: #5b707a;
+  --accent: #5cc8e0;
+  --ok: #3fc49a;
+  --warn: #e3b04b;
+  --bad: #f06a6a;
+  --logo-top: #eaf8fc;
+  --logo-bottom: #5aa9c2;
+  --logo-shine: #ffffff;
+  color-scheme: dark;
+}
+
+body {
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}
