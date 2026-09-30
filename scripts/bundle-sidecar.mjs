@@ -30,7 +30,9 @@ await build({
 writeFileSync(join(out, "package.json"), '{ "type": "module" }\n');
 
 const napi = join(root, "node_modules", "@napi-rs");
-for (const pkg of readdirSync(napi).filter((p) => p === "keyring" || p.startsWith("keyring-"))) {
+// Pas la variante musl : l'appli vise les distributions glibc, et linuxdeploy (AppImage) échoue sur
+// un binaire qui dépend de libc.musl.
+for (const pkg of readdirSync(napi).filter((p) => (p === "keyring" || p.startsWith("keyring-")) && !p.endsWith("-musl"))) {
   cpSync(join(napi, pkg), join(out, "node_modules", "@napi-rs", pkg), { recursive: true });
 }
 
