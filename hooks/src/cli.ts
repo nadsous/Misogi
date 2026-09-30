@@ -5,12 +5,14 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { isAgent } from "./adapters/index.js";
-import { listProjects, loadSettings } from "./config.js";
+import { listProjects, loadProjectConfig, loadSettings, mockEnabled } from "./config.js";
 import { doctor, formatChecks } from "./doctor.js";
 import { install, preview, refreshHooks, stableHookScript, uninstall } from "./install.js";
-import { deleteApiKey, setApiKey } from "./keys.js";
-import { purgeOlderThan } from "./log.js";
-import { detectAgents } from "./platform.js";
+import { deleteApiKey, getApiKey, setApiKey } from "./keys.js";
+import { appendEvent, purgeOlderThan } from "./log.js";
+import { detectAgents, projectRoot } from "./platform.js";
+import { askFiles, find, formatResults, searchEvent } from "./search.js";
+import { startRouter } from "./router.js";
 import { remoteToken } from "./runtime.js";
 import { DEFAULT_PORT, startServer } from "./server.js";
 import type { Agent } from "./types.js";
@@ -25,6 +27,8 @@ const HELP = `misogi — voir ce que Jev pense de chaque décision de ton agent
   misogi key delete
   misogi serve [--port ${DEFAULT_PORT}] [--static <dossier>] [--listen 0.0.0.0]  fenêtre dans le navigateur, journal en direct
   misogi remote                             comment brancher une session SSH ou un conteneur de dev sur cette fenêtre
+  misogi find "<description>" [dossier] [-n 5] [--min 0.5]   trouve du code en le décrivant (Jev juge, rien n'entre dans le contexte)
+  misogi ask "<question oui/non>" [dossier] [--min 0.5]       pose la question à chaque fichier, rend ceux qui répondent oui
   misogi purge [--days 30]                  supprime les décisions plus anciennes (par défaut : durée de conservation réglée)
 
   --project <dossier>   projet visé (défaut : dossier courant)
@@ -124,6 +128,30 @@ chaque décision ici, signée avec ce jeton (garde-le pour toi) :
 Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne quand même.`);
       return 0;
     }
+    case "find":
+    case "ask": {
+      const [query, dir] = args.filter((a, i) => !a.startsWith("-") && !/^(-n|--min)$/.test(args[i - 1] ?? ""));
+      if (!query) {
+        console.error(`usage : misogi ${cmd} "<${cmd === "find" ? "description" : "question oui/non"}>" [dossier]`);
+        return 1;
+      }
+      const root = projectRoot(process.cwd());
+      const config = loadProjectConfig(root);
+      const { key } = await getApiKey(root);
+      const opts = { n: Number(flag(args, "-n")) || undefined, min: Number(flag(args, "--min")) || undefined };
+      const started = Date.now();
+      try {
+        const deps = { apiKey: key, mock: mockEnabled() };
+        const r = cmd === "find" ? await find(root, query, dir ?? ".", config, deps, opts) : await askFiles(root, query, dir ?? ".", config, deps, opts);
+        console.log(formatResults(cmd, r));
+        // Consigné comme le reste : la fenêtre montre ce qui a été cherché, par qui, et ce qui a été rendu.
+        appendEvent(searchEvent(cmd, process.env.CLAUDECODE ? "claude" : null, root, query, r, config, Date.now() - started));
+        return 0;
+      } catch (err) {
+        console.error(`misogi ${cmd} : ${(err as Error).message}`);
+        return 1;
+      }
+    }
     case "purge": {
       const days = Number(flag(args, "--days")) || loadSettings().retention_days;
       console.log(`✓ ${purgeOlderThan(days)} décision(s) de plus de ${days} jours supprimée(s)`);
@@ -131,6 +159,7 @@ Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne 
     }
     case "serve": {
       keepHooksCurrent();
+      void startRouter(); // Claude Code des projets où le routeur est activé passe par là
       const staticDir = flag(args, "--static");
       const listen = flag(args, "--listen");
       const { port } = await startServer({ port: Number(flag(args, "--port")) || DEFAULT_PORT, staticDir: staticDir && resolve(staticDir), listen });
@@ -142,6 +171,7 @@ Sans fenêtre joignable, le hook distant garde son propre journal et fonctionne 
   // `npx misogi` tout court : la fenêtre s'ouvre dans le navigateur, le reste se fait depuis elle.
   if (!cmd) {
     keepHooksCurrent();
+    void startRouter();
     const { port } = await startServer({ port: DEFAULT_PORT }).catch(async (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") return { port: DEFAULT_PORT }; // déjà lancée : on ouvre juste la fenêtre
       throw err;

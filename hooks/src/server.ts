@@ -16,12 +16,13 @@ import { STOP_ADAPTERS } from "./adapters/index.js";
 import { forgetProject, hiddenProjects, hideProject, isTracked, mockEnabled, unhideProject, listProjects, loadProjectConfig, loadSettings, misogiHome, samePath, saveProjectConfig, saveSettings } from "./config.js";
 import { listGuides } from "./guides.js";
 import { checkLoop } from "./loops.js";
+import { loadRouteStats } from "./router.js";
 import { findProjectIcon } from "./icons.js";
 import { getUsage } from "./usage.js";
 import { askJev } from "./jev.js";
 import { deleteApiKey, getApiKey, getSecret, setApiKey, setSecret, type SecretName } from "./keys.js";
 import { loadFeedback, reliability, replay, setFeedback, suggestThreshold, type Verdict } from "./feedback.js";
-import { install, installStatusline, isInstalled, isStatuslineInstalled, preview, stableHookScript, uninstall, uninstallStatusline } from "./install.js";
+import { install, installStatusline, routerEnvSet, setRouterEnv, isInstalled, isStatuslineInstalled, preview, stableHookScript, uninstall, uninstallStatusline } from "./install.js";
 import { appendEvent, logPath, purgeOlderThan } from "./log.js";
 import { answerPending, heartbeat, listBusy, listPending, remoteToken, setOverride, type OverrideAction } from "./runtime.js";
 import { detectAgents, projectRoot, which, wslLogFiles } from "./platform.js";
@@ -399,7 +400,7 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       case "GET /api/remote":
         return send(res, 200, { token, port: opts.port ?? DEFAULT_PORT, listen: opts.listen ?? "127.0.0.1", addresses: lanAddresses() });
       case "GET /api/usage":
-        return send(res, 200, { ...getUsage(), statusline: isStatuslineInstalled() });
+        return send(res, 200, { ...getUsage(), statusline: isStatuslineInstalled(), router: loadRouteStats(), assists: assistsToday(readBacklog(logs, 5000)) });
       case "POST /api/usage/statusline": {
         const { on } = await body<{ on: boolean }>(req);
         return send(res, 200, on ? installStatusline() : uninstallStatusline());
@@ -444,7 +445,19 @@ export function startServer(opts: ServeOptions = {}): Promise<{ port: number; cl
       }
       case "POST /api/config": {
         const { path, patch } = await body<{ path: string; patch: Partial<ProjectConfig> }>(req);
-        return send(res, 200, saveProjectConfig(path, patch));
+        // Routeur : Claude Code doit passer par Misogi (ou ne plus y passer) pour ce projet. On suit la config
+        // enregistrée, pas la demande : le profil « code client » peut refuser le routeur.
+        const before = loadProjectConfig(path);
+        const next = saveProjectConfig(path, patch);
+        if (next.router.enabled !== before.router.enabled || next.router.enabled !== routerEnvSet(path)) {
+          try {
+            setRouterEnv(path, next.router.enabled);
+          } catch (err) {
+            saveProjectConfig(path, { router: { ...next.router, enabled: false } });
+            return send(res, 400, { error: (err as Error).message });
+          }
+        }
+        return send(res, 200, next);
       }
       case "POST /api/key": {
         // all : même clé pour tous les projets suivis (chaque projet garde sa propre entrée dans le trousseau).
@@ -565,4 +578,21 @@ async function body<T>(req: IncomingMessage): Promise<T> {
     chunks.push(c as Buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as T;
+}
+
+/** Ce que les aides natives ont fait aujourd'hui : lectures resserrées (tokens gardés hors contexte), recherches. */
+export function assistsToday(events: MisogiEvent[], now = new Date()): { narrowed: number; savedTokens: number; searches: number } {
+  const day = now.toISOString().slice(0, 10);
+  let narrowed = 0;
+  let savedTokens = 0;
+  let searches = 0;
+  for (const e of events) {
+    if (new Date(e.ts).toISOString().slice(0, 10) !== day) continue;
+    if (e.hook === "read" && e.read?.window) {
+      narrowed++;
+      savedTokens += e.read.saved ?? 0;
+    }
+    if (e.hook === "find" || e.hook === "ask") searches++;
+  }
+  return { narrowed, savedTokens, searches };
 }

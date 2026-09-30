@@ -18,7 +18,8 @@ export const DEFAULT_CONFIG: ProjectConfig = {
   max_state_tokens: 30_000,
   guard: { enabled: false, mode: "shadow", threshold: 0.7 },
   tickets: true,
-  assist: { prompt: true, review: true, compact: true, loops: true },
+  assist: { prompt: true, review: true, compact: true, loops: true, read: true },
+  router: { enabled: false, models: { fast: "claude-haiku-4-5", balanced: "claude-sonnet-5-5", frontier: "claude-opus-5-5" } },
 };
 
 export const DEFAULT_SETTINGS: GlobalSettings = { retention_days: 30 };
@@ -57,12 +58,16 @@ export function saveProjectConfig(projectDir: string, patch: Partial<ProjectConf
   return next;
 }
 
+/** Un identifiant de modèle Claude : lettres, chiffres, tirets, points. */
+const modelId = (v: unknown, fallback: string): string => (typeof v === "string" && /^claude-[\w.-]{2,60}$/.test(v) ? v : fallback);
+
 const num = (v: unknown, min: number, max: number, fallback: number): number => (typeof v === "number" && v >= min && v <= max ? v : fallback);
 
 function sanitize(c: ProjectConfig): ProjectConfig {
   const profile = c.profile === "client" ? "client" : "default";
   const g = (c.guard ?? {}) as Partial<ProjectConfig["guard"]>;
   const a = (c.assist ?? {}) as Partial<ProjectConfig["assist"]>;
+  const r = (c.router ?? {}) as Partial<ProjectConfig["router"]>;
   // Profil « code client » : rien du code ni de la conversation ne part, donc pas de relecture du diff ni de la demande.
   const shares = profile !== "client" && c.state_level !== "minimal";
   return {
@@ -81,6 +86,16 @@ function sanitize(c: ProjectConfig): ProjectConfig {
       review: shares && a.review !== false,
       compact: shares && a.compact !== false,
       loops: a.loops !== false,
+      read: shares && a.read !== false,
+    },
+    router: {
+      // Le routeur envoie la demande à Jev : impossible sans partage, comme la relecture de la demande.
+      enabled: shares && r.enabled === true,
+      models: {
+        fast: modelId(r.models?.fast, DEFAULT_CONFIG.router.models.fast),
+        balanced: modelId(r.models?.balanced, DEFAULT_CONFIG.router.models.balanced),
+        frontier: modelId(r.models?.frontier, DEFAULT_CONFIG.router.models.frontier),
+      },
     },
     mode: c.mode === "active" ? "active" : "shadow",
     profile,

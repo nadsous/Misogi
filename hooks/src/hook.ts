@@ -22,6 +22,8 @@ import { addPending, clearBusy, isHeadless, markBusy, recordRelaunch, relaunchCo
 import { runStop } from "./stop.js";
 import { contextAfterCompact, runCompact } from "./compact.js";
 import { previousAgentMessage, runPrompt } from "./prompt.js";
+import { readIntent, resolveFile, runRead } from "./read.js";
+import { decideRoute } from "./router.js";
 import { projectRoot } from "./platform.js";
 import { ticketFor } from "./tickets.js";
 import type { MisogiEvent } from "./types.js";
@@ -169,17 +171,53 @@ async function prompt(agent: "claude" | "codex", input: Record<string, unknown>)
   if (!isTracked(project)) return;
   const config = loadProjectConfig(project);
   const text = String(input.prompt ?? "").trim();
-  // Commandes (/clear, /model…) : rien à relire.
-  if (!config.assist.prompt || !text || text.startsWith("/")) return;
+  // Commandes (/clear, /model…) : rien à relire. Le routeur a besoin de cette relecture pour choisir le modèle.
+  const routing = agent === "claude" && config.router.enabled;
+  if ((!config.assist.prompt && !routing) || !text || text.startsWith("/")) return;
   const { key } = await getApiKey(project);
   const busy = markBusy({ agent, project, hook: "prompt" }, `${agent}-${session}-prompt`);
   try {
-    const { event, context } = await runPrompt({ agent, project, session, prompt: text, previous: previousAgentMessage(transcript) }, config, { apiKey: key, mock: mockEnabled() });
+    let { event, context } = await runPrompt({ agent, project, session, prompt: text, previous: previousAgentMessage(transcript) }, config, { apiKey: key, mock: mockEnabled() });
+    // Routeur : le modèle de ce tour, écrit avant que Claude Code n'envoie sa requête (le relais le lit).
+    if (routing && event.prompt) {
+      const route = decideRoute(session, event.prompt.size, config);
+      event = { ...event, route, reason: `${event.reason ?? ""} Routé vers ${route.model}${route.escalated ? ` (monté depuis ${route.previous})` : ""}.`.trim() };
+    }
     await record(event);
     if (context) addContext("UserPromptSubmit", context);
   } finally {
     clearBusy(busy);
   }
+}
+
+/** Lecture ciblée (read.ts) : la lecture d'un gros fichier est remplacée par la fenêtre utile. */
+async function read(input: Record<string, unknown>): Promise<void> {
+  const { project, session, transcript } = common(input);
+  const tool = (input.tool_input ?? {}) as Record<string, unknown>;
+  const file = typeof tool.file_path === "string" ? tool.file_path : "";
+  if (!file || !isTracked(project)) return;
+  const config = loadProjectConfig(project);
+  if (!config.assist.read) return;
+  extendDeadline(Math.max(config.timeout_ms * 2, 3000) + 1500);
+  const { key } = await getApiKey(project);
+  const { event, narrowed } = await runRead(
+    { project, session, filePath: resolveFile(project, file), offset: tool.offset, limit: tool.limit, ...readIntent(transcript) },
+    config,
+    { apiKey: key, mock: mockEnabled() },
+  );
+  if (event) await record(event);
+  if (!narrowed) return;
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: "Misogi : lecture resserrée à la partie utile",
+        updatedInput: { ...tool, offset: narrowed.offset, limit: narrowed.limit },
+        additionalContext: narrowed.note,
+      },
+    }),
+  );
 }
 
 /** Avant la compaction : choisir tes consignes à garder (compact.ts). */
@@ -209,9 +247,10 @@ async function main(): Promise<void> {
   const input = JSON.parse((await readStdin()) || "{}") as Record<string, unknown>;
   if ((agent === "claude" || agent === "codex") && hook === "prompt") return prompt(agent, input);
   if (agent === "claude" && hook === "precompact") return precompact(input);
+  if (agent === "claude" && hook === "read") return read(input);
   if (agent === "claude" && hook === "session") return session(input);
   if (!isAgent(agent) || (hook !== "stop" && hook !== "pretool")) {
-    process.stderr.write(`misogi: combinaison non prise en charge « ${agent} ${hook} » (disponible : claude|codex|kimi stop|pretool, claude|codex prompt, claude precompact|session)\n`);
+    process.stderr.write(`misogi: combinaison non prise en charge « ${agent} ${hook} » (disponible : claude|codex|kimi stop|pretool, claude|codex prompt, claude precompact|session|read)\n`);
     return;
   }
   const trackedOnly = flags.includes("--tracked-only");

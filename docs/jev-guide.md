@@ -90,6 +90,12 @@ In **Project settings → Jev helpers**, four helpers are on by default (cost: a
 
 With the *client code* profile or the *minimal* level, none of your code or messages leave: only loop detection remains possible.
 
+## 7c. Saving your plan: router, narrowed reads, search
+
+- **Model router** (Project settings → Router, off by default): Claude Code goes through Misogi (`ANTHROPIC_BASE_URL` in `.claude/settings.local.json`). For each message, the request check gives the size of the work and Misogi picks Haiku, Sonnet or Opus; within a session the model never goes down. The app must stay open, and Claude sessions already open must be restarted. The Quotas panel shows each model's share.
+- **Narrowed reads** (on by default): for a 400-line to 80 KB file read in full, Jev picks the useful part; it only narrows when it is sure (measured: 0.96 to 0.98 when it knows) and leaves the file whole when two distant places match.
+- **Search by meaning**: `misogi find "<what the code does>"` and `misogi ask "<yes/no question>" [folder]`, from the terminal or by the agent (`misogi-search` skill). Grep is still better when you know the exact name.
+
 ## 8. Headless (CI, `claude -p`)
 
 Nobody can click: Misogi applies the rule immediately, never waits, and prints its reason on stderr. Detected through `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`… or `MISOGI_HEADLESS=1`.

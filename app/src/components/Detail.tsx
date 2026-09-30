@@ -76,6 +76,49 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
 
         {e.review && <ReviewBlock review={e.review} verified={!!e.facts?.verified_after_last_edit} />}
         {e.prompt && <PromptBlock p={e.prompt} />}
+        {e.route && (
+          <Section title={t("route.title")}>
+            <p className="text-xs">
+              <strong className="font-mono">{e.route.model}</strong>
+              <span className="text-muted"> · {t(`tier.${e.route.tier}` as Key)}</span>
+              {e.route.escalated && <span className="text-warn"> · {t("route.escalated")}</span>}
+            </p>
+            <p className="mt-1 text-2xs leading-relaxed text-faint">{t("route.help")}</p>
+          </Section>
+        )}
+        {e.read && (
+          <Section title={t("read.title")}>
+            <p className="text-xs">
+              <code className="font-mono text-2xs">{e.read.file}</code> · {e.read.lines} {t("read.lines")}
+            </p>
+            {e.read.window && (
+              <p className="mt-1 text-xs">
+                {t("read.window")} <strong>{e.read.window[0]}–{e.read.window[1]}</strong> · {t("ans.sure")} {pct(e.read.p)}
+                {!!e.read.saved && <span className="text-faint"> · ~{e.read.saved.toLocaleString()} tokens {t("read.saved")}</span>}
+              </p>
+            )}
+          </Section>
+        )}
+        {e.search && (
+          <Section title={t(e.hook === "ask" ? "search.askTitle" : "search.findTitle")}>
+            <p className="mb-1.5 text-xs italic">« {e.search.query} »</p>
+            {e.search.results.length ? (
+              <ul className="space-y-0.5 font-mono text-2xs">
+                {e.search.results.map((r) => (
+                  <li key={r.path}>
+                    <span className="text-faint">{r.p.toFixed(2)}</span> {r.path}
+                    {r.line ? `:${r.line}` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted">{t("search.none")}</p>
+            )}
+            <p className="mt-1.5 text-2xs text-faint">
+              {e.search.scanned} {t("search.scanned")}
+            </p>
+          </Section>
+        )}
         {e.compact && (
           <Section title={t("compact.title")}>
             {e.compact.kept.length ? (
@@ -94,7 +137,7 @@ export function Detail({ event: e, onClose }: { event: MisogiEvent; onClose: () 
         )}
 
         {/* 3. Ce que Jev a lu dans la réponse */}
-        {e.hook !== "prompt" && e.hook !== "compact" && (
+        {["stop", "pretool", "loop"].includes(e.hook) && (
         <Section title={e.hook === "pretool" ? t("jev.titleGuard") : e.hook === "loop" ? t("jev.titleLoop") : t("jev.title")}>
           {questions.length ? (
             <ul className="space-y-2.5">
@@ -166,6 +209,8 @@ function didKey(e: MisogiEvent): Key {
   if (e.hook === "prompt") return e.prompt?.injected ? "did.promptInjected" : "did.promptShown";
   if (e.hook === "compact") return e.compact?.kept.length ? "did.compact" : "did.compactNone";
   if (e.hook === "loop") return "did.loop";
+  if (e.hook === "read") return e.read?.window ? "did.readNarrowed" : "did.readWhole";
+  if (e.hook === "find" || e.hook === "ask") return "did.search";
   if (e.hook === "pretool") return e.decision === "block" ? "did.guardBlock" : e.decision === "would_block" ? "did.guardWould" : "did.guardOk";
   if (e.limit_reached) return "did.limit";
   if (e.decision === "error") return "did.error";

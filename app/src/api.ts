@@ -42,6 +42,9 @@ export interface MisogiEvent {
   review?: Review;
   compact?: { kept: string[]; candidates: number };
   loop?: { signal: string; stuck: number };
+  read?: { file: string; lines: number; window: [number, number] | null; p: number; saved?: number };
+  search?: { query: string; scanned: number; results: { path: string; line?: number; p: number }[] };
+  route?: { tier: "fast" | "balanced" | "frontier"; model: string; previous?: string; escalated: boolean };
 }
 
 export interface Review {
@@ -139,7 +142,8 @@ export interface ProjectConfig {
   max_state_tokens: number;
   guard: { enabled: boolean; mode: "shadow" | "active"; threshold: number };
   tickets: boolean;
-  assist: { prompt: boolean; review: boolean; compact: boolean; loops: boolean };
+  assist: { prompt: boolean; review: boolean; compact: boolean; loops: boolean; read: boolean };
+  router: { enabled: boolean; models: { fast: string; balanced: string; frontier: string } };
 }
 
 /** Projet où un agent a travaillé récemment, sans Misogi. */
@@ -179,6 +183,8 @@ export interface Usage {
   kimi: AgentUsage | null;
   jev: { callsToday: number; tokensToday: number; tokens7d: number; costToday: number; cost7d: number; avgLatencyMs: number | null; errorsToday: number };
   statusline: boolean;
+  router?: { since: number; models: Record<string, { requests: number; input: number; output: number }>; fallbacks?: number };
+  assists?: { narrowed: number; savedTokens: number; searches: number };
 }
 
 export interface Guide {

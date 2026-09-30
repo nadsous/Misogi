@@ -26,6 +26,9 @@ export function stableHookScript(): string {
   const bin = join(misogiHome(), "bin");
   mkdirSync(bin, { recursive: true });
   if (existsSync(source)) copyFileSync(source, join(bin, "hook.js")); // absent seulement dans les tests (sources .ts)
+  // La CLI aussi : l'agent l'appelle pour misogi find / ask (voir le skill misogi-search).
+  const cli = join(dirname(source), "cli.js");
+  if (existsSync(cli)) copyFileSync(cli, join(bin, "cli.js"));
   writeFileSync(join(bin, "package.json"), '{ "type": "module" }\n');
   try {
     const scope = dirname(dirname(createRequire(import.meta.url).resolve("@napi-rs/keyring/package.json")));
@@ -56,7 +59,7 @@ export function refreshHooks(): number {
         if (!isInstalled(agent, path)) continue;
         const text = readFileSync(configFile(agent, path), "utf8");
         // À jour : bon chemin, et pour Claude les hooks ajoutés depuis (demande, compaction).
-        if (text.includes(script) && (agent !== "claude" || text.includes("claude precompact"))) continue;
+        if (text.includes(script) && (agent !== "claude" || text.includes("claude read"))) continue;
         install(agent, path);
         n++;
       } catch {
@@ -78,7 +81,7 @@ export function refreshHooks(): number {
   return n;
 }
 // Le guillemet est échappé (\") quand on teste le texte brut d'un fichier JSON.
-const OURS = /hook\.js\\?"? (claude|codex|kimi) (stop|pretool|prompt|precompact|session)/;
+const OURS = /hook\.js\\?"? (claude|codex|kimi) (stop|pretool|prompt|precompact|session|read)/;
 /** Stop : assez long pour te laisser trancher depuis la fenêtre (attente réglable, 60 s au plus). */
 const STOP_TIMEOUT_S = 75;
 /** Avant outil : le garde-fou ne consulte Jev que pour les commandes risquées, 1,5 s au plus. */
@@ -90,7 +93,7 @@ const SHELL_MATCHER: Record<Agent, string> = { claude: "Bash", codex: "Bash", ki
 const PROMPT_TIMEOUT_S = 10;
 const COMPACT_TIMEOUT_S = 20;
 
-export function hookCommand(agent: Agent, script = stableHookScript(), hook: "stop" | "pretool" | "prompt" | "precompact" | "session" = "stop"): string {
+export function hookCommand(agent: Agent, script = stableHookScript(), hook: "stop" | "pretool" | "prompt" | "precompact" | "session" | "read" = "stop"): string {
   return `node "${script}" ${agent} ${hook}${agent === "kimi" ? " --tracked-only" : ""}`;
 }
 
@@ -121,7 +124,10 @@ export function install(agent: Agent, project: string): InstallResult {
   const command = hookCommand(agent, script);
   const backup = backupOnce(file);
   const pretool = hookCommand(agent, script, "pretool");
-  if (agent === "claude") removeFromJsonFile(legacyClaudeFile(project));
+  if (agent === "claude") {
+    removeFromJsonFile(legacyClaudeFile(project));
+    installSearchSkill(script);
+  }
   if (agent === "kimi") writeFileSync(file, addKimiHook(readOr(file, ""), command, pretool), "utf8");
   else writeJson(file, addJsonHook(readJson(file), command, pretool, SHELL_MATCHER[agent], agent === "claude" ? claudeExtras(script) : undefined));
   if (!isTracked(project)) saveProjectConfig(project, {});
@@ -149,6 +155,16 @@ export function uninstall(agent: Agent, project: string): { file: string; change
   project = resolve(project);
   const file = configFile(agent, project);
   updateProject(project, (a) => a.filter((x) => x !== agent));
+  // Plus aucun projet avec Claude : le skill de recherche n'a plus de raison d'être.
+  if (agent === "claude" && !listProjects().some((p) => p.agents.includes("claude"))) rmSync(searchSkillDir(), { recursive: true, force: true });
+  // Sans hooks, plus de décision de routage : Claude Code ne doit plus passer par Misogi.
+  if (agent === "claude") {
+    try {
+      setRouterEnv(project, false);
+    } catch {
+      // settings.local.json illisible : laissé tel quel
+    }
+  }
   const legacy = agent === "claude" && removeFromJsonFile(legacyClaudeFile(project));
   if (!existsSync(file)) return { file, changed: legacy };
   const before = readFileSync(file, "utf8");
@@ -237,21 +253,25 @@ type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; 
 type HooksJson = { hooks?: Record<string, HookGroup[]> } & Record<string, unknown>;
 
 /** Hooks en plus pour Claude Code : événement → groupe (matcher éventuel, commande, délai). */
-type Extras = Record<string, { matcher?: string; command: string; timeout: number }>;
+type Extras = Record<string, { matcher?: string; command: string; timeout: number } | { matcher?: string; command: string; timeout: number }[]>;
 
 function claudeExtras(script: string): Extras {
   return {
     UserPromptSubmit: { command: hookCommand("claude", script, "prompt"), timeout: PROMPT_TIMEOUT_S },
     PreCompact: { command: hookCommand("claude", script, "precompact"), timeout: COMPACT_TIMEOUT_S },
     SessionStart: { matcher: "compact", command: hookCommand("claude", script, "session"), timeout: 5 },
+    // Lecture ciblée : un groupe à part, à côté du garde-fou shell (matcher Bash).
+    PreToolUse: { matcher: "Read", command: hookCommand("claude", script, "read"), timeout: 10 },
   };
 }
 
 export function addJsonHook(json: HooksJson, command: string, pretool?: string, matcher = "Bash", extras?: Extras): HooksJson {
   const clean = removeJsonHook(json);
   const hooks = { ...(clean.hooks ?? {}) };
-  for (const [event, h] of Object.entries(extras ?? {})) {
-    hooks[event] = [...(hooks[event] ?? []), { ...(h.matcher ? { matcher: h.matcher } : {}), hooks: [{ type: "command", command: h.command, timeout: h.timeout }] }];
+  for (const [event, list] of Object.entries(extras ?? {})) {
+    for (const h of Array.isArray(list) ? list : [list]) {
+      hooks[event] = [...(hooks[event] ?? []), { ...(h.matcher ? { matcher: h.matcher } : {}), hooks: [{ type: "command", command: h.command, timeout: h.timeout }] }];
+    }
   }
   hooks.Stop = [...(hooks.Stop ?? []), { hooks: [{ type: "command", command, timeout: STOP_TIMEOUT_S }] }];
   if (pretool) hooks.PreToolUse = [...(hooks.PreToolUse ?? []), { matcher, hooks: [{ type: "command", command: pretool, timeout: PRETOOL_TIMEOUT_S }] }];
@@ -336,4 +356,71 @@ function readJson(file: string): HooksJson {
 function writeJson(file: string, json: HooksJson): void {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(json, null, 2) + "\n", "utf8");
+}
+
+// --- Skill « misogi-search » (Claude Code) : dit à l'agent quand et comment utiliser misogi find / ask.
+
+export function searchSkillDir(): string {
+  return join(agentHome("claude"), "skills", "misogi-search");
+}
+
+export function searchSkill(cli: string): string {
+  return `---
+name: misogi-search
+description: Find code by describing what it does, or ask a yes/no question across many files, without reading them into your context. Use it when you don't know a symbol's name or grep finds nothing (the wording differs, another language), or to audit a property over a directory (e.g. which files build SQL by string concatenation).
+---
+
+# Recherche par le sens (Misogi + Jev)
+
+Run from the project folder:
+
+- \`node "${cli}" find "<what the code does>" [folder] [-n 5]\`: files and lines that match, best first.
+- \`node "${cli}" ask "<yes/no question>" [folder]\`: files for which the answer is yes, with the line.
+
+Each result line reads \`score  path:line\`; scores are probabilities, so open the cited line when it matters.
+"aucune correspondance" is a real answer: the thing described probably doesn't exist in the project.
+Grep stays better for an exact name you already know: it is instant and free.
+Each search shows up in the user's Misogi window.
+`;
+}
+
+export function installSearchSkill(script: string): void {
+  try {
+    const dir = searchSkillDir();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), searchSkill(script.replace(/hook\.js$/, "cli.js")), "utf8");
+  } catch {
+    // sans skill, l'agent peut toujours lancer misogi find / ask si on le lui demande
+  }
+}
+
+// --- Routeur : Claude Code passe par Misogi pour ce projet (variables d'environnement de settings.local.json).
+
+const ROUTER_ENV = { ANTHROPIC_BASE_URL: "http://127.0.0.1:4318", CLAUDE_CODE_GATEWAY_HINT_HEADERS: "1" };
+
+export function setRouterEnv(project: string, on: boolean): void {
+  const file = configFile("claude", resolve(project));
+  const json = readJson(file) as HooksJson & { env?: Record<string, string> };
+  const env = { ...(json.env ?? {}) };
+  const current = env.ANTHROPIC_BASE_URL;
+  if (on) {
+    // Une passerelle d'entreprise est déjà là : la remplacer enverrait ses identifiants à Anthropic.
+    if (current && current !== ROUTER_ENV.ANTHROPIC_BASE_URL) throw new Error(`ce projet passe déjà par ${current} : retire-le d'abord de .claude/settings.local.json`);
+    Object.assign(env, ROUTER_ENV);
+  } else if (current === ROUTER_ENV.ANTHROPIC_BASE_URL) {
+    delete env.ANTHROPIC_BASE_URL;
+    delete env.CLAUDE_CODE_GATEWAY_HINT_HEADERS;
+  }
+  const next: HooksJson & { env?: Record<string, string> } = { ...json, env };
+  if (!Object.keys(env).length) delete next.env;
+  backupOnce(file);
+  writeJson(file, next);
+}
+
+export function routerEnvSet(project: string): boolean {
+  try {
+    return (readJson(configFile("claude", resolve(project))) as { env?: Record<string, string> }).env?.ANTHROPIC_BASE_URL === ROUTER_ENV.ANTHROPIC_BASE_URL;
+  } catch {
+    return false;
+  }
 }

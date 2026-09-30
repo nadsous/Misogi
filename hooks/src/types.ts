@@ -2,7 +2,7 @@
 // Tout ce qui suit l'adaptateur ignore quel agent a produit l'événement.
 
 export type Agent = "claude" | "codex" | "kimi";
-export type HookKind = "stop" | "pretool" | "prompt" | "compact" | "loop" | "route" | "skill";
+export type HookKind = "stop" | "pretool" | "prompt" | "compact" | "loop" | "read" | "find" | "ask" | "route" | "skill";
 export type Mode = "shadow" | "active";
 export type StateLevel = "full" | "reduced" | "minimal";
 export type Decision = "allow" | "block" | "would_block" | "error";
@@ -104,6 +104,12 @@ export interface MisogiEvent {
   compact?: { kept: string[]; candidates: number };
   /** Détection de boucle (voir loops.ts) : ce qui se répète. */
   loop?: { signal: string; stuck: number };
+  /** Lecture ciblée (voir read.ts) : fenêtre donnée à l'agent, ou null si la lecture est restée entière. */
+  read?: { file: string; lines: number; window: [number, number] | null; p: number; /** Tokens estimés gardés hors du contexte. */ saved?: number };
+  /** Recherche find / ask (voir search.ts) : ce qui a été demandé et trouvé. */
+  search?: { query: string; scanned: number; results: { path: string; line?: number; p: number }[] };
+  /** Routeur (voir router.ts) : le modèle choisi pour ce tour. */
+  route?: { tier: Tier; model: string; previous?: Tier; escalated: boolean };
 }
 
 /** Relecture du diff à la fin du tour. */
@@ -149,6 +155,15 @@ export interface ProjectConfig {
   /** Relier la session à son ticket (branche ou demande) et faire juger ses critères d'acceptation. */
   tickets: boolean;
   assist: AssistConfig;
+  router: RouterConfig;
+}
+
+export type Tier = "fast" | "balanced" | "frontier";
+
+export interface RouterConfig {
+  /** Claude Code passe par Misogi (ANTHROPIC_BASE_URL) et chaque tour principal part sur le modèle choisi. */
+  enabled: boolean;
+  models: Record<Tier, string>;
 }
 
 /** Aides de Jev autour du tour (voir prompt.ts, review.ts, compact.ts, loops.ts). */
@@ -161,6 +176,8 @@ export interface AssistConfig {
   compact: boolean;
   /** Pendant le tour : repérer l'agent qui tourne en rond. */
   loops: boolean;
+  /** Lectures de gros fichiers resserrées à la partie utile (Claude Code). */
+  read: boolean;
 }
 
 /** Réglages globaux, dans ~/.misogi/settings.json. */

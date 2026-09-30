@@ -88,6 +88,12 @@ Dans **Réglages du projet → Aides de Jev**, quatre aides sont actives par dé
 
 Avec le profil *code client* ou le niveau *minimal*, rien de ton code ni de tes messages ne part : seule la détection de boucle reste possible.
 
+## 7 ter. Économiser le forfait : routeur, lectures resserrées, recherche
+
+- **Routeur de modèle** (Réglages du projet → Routeur, désactivé par défaut) : Claude Code passe par Misogi (`ANTHROPIC_BASE_URL` dans `.claude/settings.local.json`). Pour chaque message, la relecture de la demande donne la taille du travail et Misogi choisit Haiku, Sonnet ou Opus ; dans une session, le modèle ne redescend jamais. L'appli doit rester ouverte, et les sessions Claude déjà ouvertes doivent être redémarrées. Le panneau Quotas montre la part de chaque modèle.
+- **Lectures resserrées** (activées par défaut) : pour un fichier de 400 lignes à 80 Ko lu en entier, Jev choisit la partie utile ; il ne resserre que s'il est net (mesuré : 0,96 à 0,98 quand il sait) et laisse le fichier entier quand deux endroits éloignés correspondent.
+- **Recherche par le sens** : `misogi find "<ce que fait le code>"` et `misogi ask "<question oui/non>" [dossier]`, dans le terminal ou par l'agent (skill `misogi-search`). Grep reste meilleur quand tu connais le nom exact.
+
 ## 8. Sans interface (CI, `claude -p`)
 
 Personne ne peut cliquer : Misogi applique la règle tout de suite, sans attendre, et écrit sa raison sur la sortie d'erreur. Le mode est détecté avec les variables `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`… ou `MISOGI_HEADLESS=1`.

@@ -422,7 +422,7 @@ function ProjectSettings({ project, agentsFound, seenModel, onChanged }: { proje
       <div className="space-y-1.5 rounded-md border border-line p-2">
         <p className="text-xs font-medium">{t("assist.title")}</p>
         <p className="text-2xs leading-relaxed text-faint">{t(config.profile === "client" || config.state_level === "minimal" ? "assist.private" : "assist.lead")}</p>
-        {(["prompt", "review", "loops", "compact"] as const).map((k) => (
+        {(["prompt", "review", "read", "loops", "compact"] as const).map((k) => (
           <Row key={k} label={t(`assist.${k}` as Key)} tip={t(`assist.${k}.help` as Key)}>
             <input
               type="checkbox"
@@ -434,6 +434,29 @@ function ProjectSettings({ project, agentsFound, seenModel, onChanged }: { proje
             />
           </Row>
         ))}
+      </div>
+
+      <div className="space-y-1.5 rounded-md border border-line p-2">
+        <p className="text-xs font-medium">{t("router.title")}</p>
+        <p className="text-2xs leading-relaxed text-faint">{t("router.lead")}</p>
+        <Row label={t("router.enable")}>
+          <input
+            type="checkbox"
+            aria-label={t("router.enable")}
+            checked={config.router.enabled}
+            disabled={config.profile === "client" || config.state_level === "minimal"}
+            onChange={(e) => save({ router: { ...config.router, enabled: e.target.checked } })}
+            className="size-4 accent-(--accent) disabled:opacity-40"
+          />
+        </Row>
+        {config.router.enabled && (
+          <>
+            <p className="font-mono text-2xs text-muted">
+              {config.router.models.fast} · {config.router.models.balanced} · {config.router.models.frontier}
+            </p>
+            <p className="text-2xs leading-relaxed text-warn">{t("router.warn")}</p>
+          </>
+        )}
       </div>
 
       <Row label={t("tickets")} tip={t("tickets.help")}>

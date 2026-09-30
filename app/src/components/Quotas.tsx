@@ -63,8 +63,14 @@ export function Quotas() {
               <p className="text-2xs text-faint">
                 {usage.jev.callsToday} {t("quota.jevCalls")} · {tokens(usage.jev.tokensToday)} tokens{usage.jev.avgLatencyMs ? ` · ${usage.jev.avgLatencyMs} ms` : ""}
               </p>
+              {usage.assists && (usage.assists.narrowed > 0 || usage.assists.searches > 0) && (
+                <p className="text-2xs text-faint">
+                  {t("quota.assists")} : {usage.assists.narrowed} {t("quota.narrowed")} (~{tokens(usage.assists.savedTokens)} {t("quota.saved")}) · {usage.assists.searches} {t("quota.searches")}
+                </p>
+              )}
             </div>
           </div>
+          {usage.router && Object.keys(usage.router.models).length > 0 && <RouterRow router={usage.router} />}
         </div>
       )}
     </section>
@@ -149,4 +155,23 @@ function until(ms: number, lang: "fr" | "en"): string {
   if (min < 60) return rtf.format(min, "minute");
   if (min < 48 * 60) return rtf.format(Math.round(min / 60), "hour");
   return rtf.format(Math.round(min / 1440), "day");
+}
+
+/** Routeur : part des requêtes principales envoyées à chaque modèle, depuis le début des statistiques. */
+function RouterRow({ router }: { router: NonNullable<Usage["router"]> }) {
+  const t = useT();
+  const total = Object.values(router.models).reduce((n, m) => n + m.requests, 0);
+  const short = (m: string) => m.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+  return (
+    <div className="text-2xs">
+      <p className="text-xs font-medium">{t("quota.router")}</p>
+      <p className="text-faint">
+        {Object.entries(router.models)
+          .sort((a, b) => b[1].requests - a[1].requests)
+          .map(([m, s]) => `${short(m)} ${Math.round((s.requests / total) * 100)} %`)
+          .join(" · ")}
+        {router.fallbacks ? ` · ${router.fallbacks} ${t("quota.routerFallbacks")}` : ""}
+      </p>
+    </div>
+  );
 }

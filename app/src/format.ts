@@ -26,7 +26,7 @@ export function tone(e: MisogiEvent): Tone {
   if (e.decision === "block" || e.decision === "would_block") return "bad";
   if (e.decision === "error") return "muted";
   if (e.hook === "prompt") return e.prompt?.missing ? "warn" : "muted";
-  if (e.hook === "compact") return "ok";
+  if (e.hook === "compact" || e.hook === "read" || e.hook === "find" || e.hook === "ask") return "muted";
   if (e.hook === "stop" && headline(e) === "plain.reviewIssues") return "warn";
   if (e.limit_reached) return "warn";
   if (e.hook === "pretool") return "ok";
@@ -45,6 +45,9 @@ export function headline(e: MisogiEvent): Key | null {
   if (e.hook === "loop") return "plain.loop";
   if (e.hook === "prompt") return e.prompt?.missing ? "plain.promptUnclear" : "plain.promptOk";
   if (e.hook === "compact") return e.compact?.kept.length ? "plain.compactKept" : "plain.compactNone";
+  if (e.hook === "read") return e.read?.window ? "plain.readNarrowed" : "plain.readWhole";
+  if (e.hook === "find" || e.hook === "ask") return e.search?.results.length ? (e.hook === "find" ? "plain.find" : "plain.ask") : "plain.searchNone";
+  if (e.hook === "prompt" && e.route && !e.prompt?.missing) return "plain.routed";
   const h = stopHeadline(e);
   // Rien d'anormal côté « fini ? », mais la relecture du diff a trouvé quelque chose.
   if ((h === "plain.fine" || h === "plain.verified") && reviewIssues(e).total > 0) return "plain.reviewIssues";

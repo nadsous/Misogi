@@ -23,8 +23,11 @@ export function eventKey(e: MisogiEvent): string {
  */
 /** Une relecture de demande sans rien à signaler n'a pas sa place dans le fil : chaque message en ferait une. */
 function worthShowing(e: MisogiEvent): boolean {
+  // Une lecture laissée entière n'a rien changé : elle reste dans le détail du journal, pas dans le fil.
+  if (e.hook === "read") return !!e.read?.window;
   if (e.hook !== "prompt") return true;
-  return !!(e.prompt && (e.prompt.missing || e.prompt.skill || e.prompt.section));
+  // Avec le routeur, chaque message a son modèle : on le montre toujours.
+  return !!(e.route || (e.prompt && (e.prompt.missing || e.prompt.skill || e.prompt.section)));
 }
 
 export function Feed({ events: all, onOpen, showProject, arriving }: { events: MisogiEvent[]; onOpen: (e: MisogiEvent) => void; showProject: boolean; arriving: string | null }) {
@@ -122,7 +125,7 @@ function DecisionCard({ event: e, onOpen, showProject, arriving, verdict, onRate
             <span className="truncate">{e.ticket.title}</span>
           </span>
         )}
-        {e.subject && <code className="mt-1.5 block truncate rounded bg-raised px-2 py-1 font-mono text-2xs text-fg/90">{e.subject}</code>}
+        {e.subject && e.hook !== "read" && <code className="mt-1.5 block truncate rounded bg-raised px-2 py-1 font-mono text-2xs text-fg/90">{e.subject}</code>}
         {(e.resolved_by || (e.relaunches ?? 0) > 0) && (
           <p className="mt-1 text-2xs text-faint">
             {e.resolved_by && t(`resolved.${e.resolved_by}`)}
@@ -257,8 +260,22 @@ function AssistLine({ event: e }: { event: MisogiEvent }) {
     if (r.sensitive) chips.push({ text: `⚠ ${r.sensitive} ${t(r.sensitive > 1 ? "chip.sensitives" : "chip.sensitive")}`, tone: "warn" });
     if (e.review?.suggested_check && !e.facts?.verified_after_last_edit) chips.push({ text: `▶ ${e.review.suggested_check.command}`, tone: "muted" });
   }
+  if (e.route) chips.push({ text: `→ ${e.route.model}${e.route.escalated ? " ↑" : ""}`, tone: e.route.tier === "frontier" ? "warn" : "ok" });
+  if (e.hook === "read" && e.read?.window) chips.push({ text: `${e.read.file} · ${e.read.window[0]}–${e.read.window[1]} / ${e.read.lines}`, tone: "muted" });
+  if ((e.hook === "find" || e.hook === "ask") && e.search) {
+    return (
+      <span className="mt-1 block space-y-0.5 font-mono text-2xs text-muted">
+        {e.search.results.slice(0, 3).map((r) => (
+          <span key={r.path} className="block truncate">
+            {r.p.toFixed(2)} {r.path}
+            {r.line ? `:${r.line}` : ""}
+          </span>
+        ))}
+      </span>
+    );
+  }
   if (e.hook === "prompt" && e.prompt) {
-    chips.push({ text: `${t("chip.model")} ${e.prompt.model}`, tone: "muted" });
+    if (!e.route) chips.push({ text: `${t("chip.model")} ${e.prompt.model}`, tone: "muted" });
     if (e.prompt.skill) chips.push({ text: e.prompt.skill.name, tone: "ok" });
     if (e.prompt.section) chips.push({ text: e.prompt.section.name, tone: "ok" });
     if (e.prompt.injected) chips.push({ text: t("chip.injected"), tone: "muted" });

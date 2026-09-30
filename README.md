@@ -81,6 +81,9 @@ Start in **Observe** mode: Misogi only logs what Jev *would* have done. When you
 | **Diff review** | At the end of the turn, every claim of the agent ("I added the tests") is checked against the diff, files that have nothing to do with the request are flagged, sensitive ones (auth, billing, migrations, secrets) come first in the review list, and Misogi suggests the project's check command to run (`cd apps/backend && npm run test`). |
 | **Stuck-agent alert** | The same check failing again and again? Jev tells apart an agent going in circles from one that fails differently each time and is making progress; only the first gets a sound and a notification. No hook, no delay for the agent. |
 | **Compaction memory** | When Claude Code compacts the conversation, Jev picks your lasting instructions ("never touch migrations/", "use pnpm") and they are given back word for word right after the summary. |
+| **Model router** | Optional, per project: Claude Code goes through Misogi, and for each message Jev picks Haiku, Sonnet or Opus from the size of the work (a rename on Haiku, a billing refactor on Opus). Only main turns change; within a session the model only moves up; your Claude login is passed through; if the chosen model rejects a request, it goes back to the original one. Every choice shows in the feed. |
+| **Narrowed reads** | When Claude Code reads a large file (400+ lines) in full, Jev picks the part that answers what it is looking for and the agent only gets that window (about a fifth), with a note to read the rest. Ambiguous cases are left whole. Fewer tokens re-sent on every later turn. |
+| **Search by meaning** | `misogi find "where the user signs up"` finds code by describing it, even when the words differ; `misogi ask "does it build SQL by concatenation?" api/` asks a yes/no question to every file. The agent gets them as a skill; nothing enters its context but the answer, and every search shows in the window. |
 | **Shell guard** | Before a risky command runs (`rm -rf`, `git push --force`, reading `.env`, uploading data…), Jev judges if it is destructive or leaks secrets, and Misogi refuses it in Protect mode. Ordinary commands run with no delay. Works in Claude Code's auto and bypass modes. |
 | **You stay in charge** | When Jev wants to send the agent back, the window gives you a few seconds: **Let it through** or **Relaunch now**. Red cards offer the same for the next stop. |
 | **No infinite loop** | At most 2 relaunches in a row (configurable); then Misogi lets it through and notifies you. |
@@ -254,6 +257,7 @@ Adding an agent is one adapter in `hooks/src/adapters/` (hook input → `StopCon
 - [x] `npx misogi`, signed auto-updates
 - [x] Claude Code subagents: their edits and checks count in the turn
 - [x] Request check, diff review, stuck-agent alert, compaction memory, suggested threshold
+- [x] Model router, narrowed reads, `misogi find` / `misogi ask`, all native and visible in the window
 - [ ] Signed macOS / Windows builds (see [docs/signing.md](docs/signing.md))
 - [ ] Optional Supabase sync across machines
 
