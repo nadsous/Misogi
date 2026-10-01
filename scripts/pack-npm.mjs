@@ -56,10 +56,11 @@ A second opinion on every "done" your coding agent announces, plus a shell guard
 Works with Claude Code, Codex and Kimi Code. Judged by [Jev](https://docs.typesafe.ai).
 
 \`\`\`sh
-npx misogi             # opens the window in your browser
-npx misogi install     # plugs the hooks into the current project (every agent found)
-npx misogi key set     # stores your TypeSafe key in the OS keychain
-npx misogi doctor      # checks everything in one go
+npm install -g https://github.com/nadsous/Misogi/releases/latest/download/misogi.tgz
+misogi                 # opens the window in your browser
+misogi install         # plugs the hooks into the current project (every agent found)
+misogi key set         # stores your TypeSafe key in the OS keychain
+misogi doctor          # checks everything in one go
 \`\`\`
 
 Zero telemetry. Fail-open. Shadow mode first. Full documentation, desktop app and screenshots:

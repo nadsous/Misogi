@@ -95,7 +95,7 @@ jobs:
           releaseName: "Misogi ${{ github.ref_name }}"
           releaseBody: |
             Installe le paquet de ton système, puis lance Misogi. Node 20+ doit être installé (les hooks tournent avec `node`).
-            Ou sans rien installer : `npx misogi`.
+            En ligne de commande, sans compte npm : `npm install -g https://github.com/nadsous/Misogi/releases/latest/download/misogi.tgz` puis `misogi`.
 
             - **Windows** : `.exe` (installation pour l'utilisateur) ou `.msi`.
             - **macOS** : `.dmg` Apple Silicon (aarch64) ou Intel (x64).
@@ -107,3 +107,26 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }} ${{ env.SIGN_ARGS }}
+
+  # Le paquet npm, joint à la release : `npx --package=<url>/misogi.tgz misogi` marche sans compte npm.
+  npm-package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/bundle-sidecar.mjs
+      - run: node scripts/pack-npm.mjs
+      - name: Joindre misogi.tgz à la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist-npm
+          npm pack
+          mv misogi-*.tgz misogi.tgz
+          gh release upload "${{ github.ref_name }}" misogi.tgz --clobber --repo "${{ github.repository }}"

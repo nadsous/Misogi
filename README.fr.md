@@ -143,7 +143,7 @@ Une installation, une fenêtre : statut des sessions, quotas du forfait, ce qui 
 Claude Code ne donne ses limites 5 h et 7 jours qu'à sa *statusline*, qui n'existe que dans le terminal (`claude`). Les applis construites sur le SDK de Claude, comme T3 Code, ne lancent jamais de statusline : les pourcentages n'apparaissent qu'après avoir utilisé `claude` dans un terminal, une fois « Voir mes quotas Claude » activé. Les tokens consommés, eux, s'affichent toujours, quelle que soit l'appli. Les limites de Codex sont lues dans ses fichiers de session et marchent toujours.
 
 **« J'ai codé sur un projet et Jev n'a rien fait. »**
-Misogi n'était sans doute pas connecté à ce projet : il ne surveille que ceux où tu l'as activé. Clique sur **Connecter** dans le bandeau ou dans **Projets et clés** (voir [Connecter Misogi à un projet](#connecter-misogi-à-un-projet)). Si le projet est déjà connecté, lance `npx misogi doctor` dans son dossier.
+Misogi n'était sans doute pas connecté à ce projet : il ne surveille que ceux où tu l'as activé. Clique sur **Connecter** dans le bandeau ou dans **Projets et clés** (voir [Connecter Misogi à un projet](#connecter-misogi-à-un-projet)). Si le projet est déjà connecté, lance `misogi doctor` dans son dossier.
 
 **« Combien ça coûte ? »**
 Misogi est gratuit et open source. Jev coûte environ 0,0001 $ par vérification. Rien n'est envoyé sans clé.
@@ -169,12 +169,15 @@ Chaque thème recolore la goutte de verre du logo. Choisis-la dans **Réglages �
 
 Il faut Node 20+ et au moins un agent parmi Claude Code, Codex et Kimi Code.
 
-Le plus rapide, sans rien cloner :
+Le plus rapide, sans rien cloner ni compte npm :
 
 ```sh
-npx misogi               # ouvre la fenêtre
-npx misogi install       # dans ton projet : hooks pour chaque agent trouvé
+npm install -g https://github.com/nadsous/Misogi/releases/latest/download/misogi.tgz
+misogi                   # ouvre la fenêtre
+misogi install           # dans ton projet : hooks pour chaque agent trouvé
 ```
+
+Relance le même `npm install -g` pour mettre à jour. Sans rien installer : `npx --package=https://github.com/nadsous/Misogi/releases/latest/download/misogi.tgz misogi`.
 
 Ou l'appli desktop depuis les [Releases](https://github.com/nadsous/Misogi/releases) (Windows, macOS, Linux, mises à jour automatiques). Ou depuis les sources :
 
@@ -203,9 +206,9 @@ Connecter un projet :
 **Depuis le terminal, dans le dossier du projet**
 
 ```sh
-npx misogi install       # hooks pour chaque agent trouvé (ou : install claude)
-npx misogi key set       # clé Jev, rangée dans le trousseau du système
-npx misogi doctor        # vérifie en une fois : projet suivi, hooks, clé, journal
+misogi install       # hooks pour chaque agent trouvé (ou : install claude)
+misogi key set       # clé Jev, rangée dans le trousseau du système
+misogi doctor        # vérifie en une fois : projet suivi, hooks, clé, journal
 ```
 
 **Ce que ça change dans ton projet**

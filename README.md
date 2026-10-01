@@ -150,7 +150,7 @@ One install, one window: session status, plan quotas, what guides your agent, "i
 Claude Code only shares its 5-hour and 7-day limits with its *status line*, which exists in the terminal (`claude`). Apps built on the Claude Agent SDK, like T3 Code, never run a status line, so the percentages only appear once you have used `claude` in a terminal after clicking *Show my Claude quotas*. Tokens burned are always shown, whatever the app. Codex limits are read from its session files and always work.
 
 **"I coded on a project and Jev did nothing."**
-Misogi probably wasn't connected to that project: it only watches the ones you enabled. Click **Connect** in the banner or in **Projects & keys** (see [Connect Misogi to a project](#connect-misogi-to-a-project)). If the project is already connected, run `npx misogi doctor` in its folder.
+Misogi probably wasn't connected to that project: it only watches the ones you enabled. Click **Connect** in the banner or in **Projects & keys** (see [Connect Misogi to a project](#connect-misogi-to-a-project)). If the project is already connected, run `misogi doctor` in its folder.
 
 **"What does it cost?"**
 Misogi is free and open source. Jev costs about $0.0001 per check. Nothing is sent without a key.
@@ -193,12 +193,15 @@ The window never talks to your agent. Hooks write one JSON line per decision; th
 
 Requirements: Node 20+, and at least one of Claude Code, Codex or Kimi Code.
 
-The fastest way, nothing to clone:
+The fastest way, nothing to clone, no npm account needed:
 
 ```sh
-npx misogi               # opens the window
-npx misogi install       # in your project: hooks for every agent found
+npm install -g https://github.com/nadsous/Misogi/releases/latest/download/misogi.tgz
+misogi                   # opens the window
+misogi install           # in your project: hooks for every agent found
 ```
+
+Run the same `npm install -g` again to update. Without installing anything: `npx --package=https://github.com/nadsous/Misogi/releases/latest/download/misogi.tgz misogi`.
 
 Or the desktop app from the [Releases](https://github.com/nadsous/Misogi/releases) page (Windows, macOS, Linux, auto-updating). Or from source:
 
@@ -227,9 +230,9 @@ Connecting a project:
 **From the terminal, inside the project folder**
 
 ```sh
-npx misogi install       # hooks for every agent found (or: install claude)
-npx misogi key set       # Jev key, stored in the OS keychain
-npx misogi doctor        # checks everything at once: tracked project, hooks, key, log
+misogi install       # hooks for every agent found (or: install claude)
+misogi key set       # Jev key, stored in the OS keychain
+misogi doctor        # checks everything at once: tracked project, hooks, key, log
 ```
 
 **What it changes in your project**
@@ -294,7 +297,7 @@ Adding an agent is one adapter in `hooks/src/adapters/` (hook input → `StopCon
 - [x] Relaunch limit, decide from the window, headless mode, remote sessions, log retention, Jev pinning
 - [x] Threshold replay on past decisions, "Jev was right / wrong" labels, measured reliability
 - [x] Ticket acceptance criteria (GitHub, GitLab, Linear) judged by Jev
-- [x] `npx misogi`, signed auto-updates
+- [x] Install from GitHub Releases (`npm install -g …/misogi.tgz`), signed auto-updates
 - [x] Claude Code subagents: their edits and checks count in the turn
 - [x] Request check, diff review, stuck-agent alert, compaction memory, suggested threshold
 - [x] Model router, narrowed reads, `misogi find` / `misogi ask`, all native and visible in the window
